@@ -1,0 +1,5 @@
+{
+  "name": "12-Step Companion (NA/AA)",
+  "description": "A private, distraction-free companion for the 12 Steps where a participant completes one question per screen and collaborates with a sponsor. Features autosave, offline support, sponsor comments, and PDF export.",
+  "requestFramePermissions": []
+}
