@@ -1,0 +1,23 @@
+{
+  "name": "@repo/ui",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./Button": "./src/Button.tsx",
+    "./StyledText": "./src/StyledText.tsx"
+  },
+  "scripts": {
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-native": "0.74.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.61",
+    "typescript": "^5.3.3"
+  }
+}
