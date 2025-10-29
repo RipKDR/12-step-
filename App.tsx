@@ -1,113 +1,18 @@
 
 import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import Onboarding from './pages/Onboarding';
-import StepsList from './pages/StepsList';
-import StepView from './pages/StepView';
-import SponsorReview from './pages/SponsorReview';
-import Export from './pages/Export';
-import Journal from './pages/Journal';
-import Profile from './pages/Profile';
-import NotFound from './pages/NotFound';
-import Header from './components/layout/Header';
-import { auth } from './services/firebase';
-import { seedInitialData } from './services/firestoreService';
-
-/*
-README.md
-
-# 12-Step Companion (NA/AA) - MVP Scaffold
-
-This project is a React + TypeScript Progressive Web App (PWA) designed to be a private, secure companion for working through the 12 Steps. It features a one-question-per-screen wizard, sponsor collaboration, offline support, and more, all built on Firebase.
-
-## Target Stack
-- **Frontend**: React 18+, TypeScript, Vite
-- **UI**: Tailwind CSS (for a Material Design 3 aesthetic)
-- **Routing**: React Router
-- **Backend**: Firebase (Authentication, Firestore, Cloud Functions, Storage)
-- **AI**: Gemini 2.5 Pro (via server-side Cloud Functions)
-
----
-
-## Firebase Setup
-
-1.  **Create a Firebase Project**: Go to the [Firebase Console](https://console.firebase.google.com/) and create a new project.
-
-2.  **Create a Web App**:
-    - Inside your project, click the Web icon (`</>`) to create a new web app.
-    - Give it a nickname (e.g., "12-Step Companion Web").
-    - Copy the `firebaseConfig` object provided.
-
-3.  **Update Firebase Config**:
-    - Open `src/services/firebase.ts`.
-    - Replace the placeholder `firebaseConfig` object with the one you copied from the Firebase console.
-
-4.  **Enable Firebase Services**:
-    - **Authentication**: Go to the "Authentication" section, click "Get started", and enable the "Email/Password" provider. You can also enable Google, Apple, etc.
-    - **Firestore**: Go to the "Firestore Database" section, click "Create database", start in **production mode**, and choose a location.
-    - **Cloud Functions**: You will need to set up the Firebase CLI to deploy functions.
-    - **Storage**: (Optional for MVP) Go to "Storage" and click "Get started".
-
-5.  **Set Up Firestore Security Rules**:
-    - Go to "Firestore Database" > "Rules".
-    - Copy the contents of the `firestore.rules` file from this project and paste them into the rules editor.
-    - Click "Publish".
-
-6.  **Seed Initial Data (Step One)**:
-    - You will need a script or to manually add the initial data for steps and questions to your Firestore database. The seed data can be found in `src/constants/steps.ts`.
-    - Create a `steps` collection and a `questions` collection. Add documents corresponding to the seed data.
-
----
-
-## Local Development
-
-1.  **Install Dependencies**:
-    ```bash
-    npm install
-    ```
-
-2.  **Run the Development Server**:
-    ```bash
-    npm run dev
-    ```
-    This will start the Vite development server, typically on `http://localhost:5173`.
-
----
-
-## Cloud Functions
-
-1.  **Setup Firebase CLI**: If you haven't already, install the Firebase CLI and log in.
-    ```bash
-    npm install -g firebase-tools
-    firebase login
-    ```
-
-2.  **Initialize Functions**: Navigate to the `functions` directory in your terminal.
-    ```bash
-    cd functions
-    npm install
-    ```
-
-3.  **Deploy Functions**: From the root directory of the project.
-    ```bash
-    firebase deploy --only functions
-    ```
-    The stubbed `notifyOnReview` function will be deployed.
-
----
-
-## Next Steps
-
-1.  **Implement Authentication**: Wire up the UI in `Onboarding.tsx` and `Header.tsx` to the functions in `src/services/authService.ts`. Create signup and login forms.
-2.  **Connect to Firestore**: Replace all mock data fetching in the page components (`StepsList.tsx`, `StepView.tsx`, etc.) with actual calls to `firestoreService.ts`.
-3.  **Build out UI Components**: Flesh out the placeholder components in `src/components/` with full functionality and styling (e.g., `SponsorCommentDrawer`, `InviteSponsorDialog`).
-4.  **Develop Cloud Functions**: Implement the server-side logic for AI suggestions (`/ai/suggest`), summaries (`/ai/summary`), and PDF generation (`/export`).
-5.  **Refine Security Rules**: Thoroughly test the Firestore security rules to ensure data privacy and integrity.
-6.  **Implement PWA Features**: Add a `vite.config.ts` and use a plugin like `vite-plugin-pwa` to configure the service worker, manifest, and caching strategies for offline support.
-7.  **Testing**: Write unit and integration tests for critical logic, such as data services, custom hooks, and complex components.
-
-*/
+import { AuthProvider, useAuth } from '@/context/AuthContext';
+import Onboarding from '@/pages/Onboarding';
+import StepsList from '@/pages/StepsList';
+import StepView from '@/pages/StepView';
+import SponsorReview from '@/pages/SponsorReview';
+import Export from '@/pages/Export';
+import Journal from '@/pages/Journal';
+import Profile from '@/pages/Profile';
+import NotFound from '@/pages/NotFound';
+import Header from '@/components/layout/Header';
+import { auth } from '@/services/firebase';
+import { seedInitialData } from '@/services/firestoreService';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -177,7 +82,7 @@ function App() {
             </Routes>
           </main>
         </div>
-      </HashRouter>
+      </Hash-router>
     </AuthProvider>
   );
 }
