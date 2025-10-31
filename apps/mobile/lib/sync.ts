@@ -4,7 +4,12 @@ import {
   syncUp, 
   getPendingSyncItems, 
   markAsSynced, 
-  getDatabaseStats 
+  getDatabaseStats,
+  upsertDailyEntry,
+  getPendingDailyEntries,
+  markDailyEntrySynced,
+  markDailyEntrySyncing,
+  markDailyEntrySyncError,
 } from './db';
 
 // Sync configuration
@@ -71,9 +76,28 @@ async function syncDownFromServer(userId: string): Promise<void> {
     const steps = await trpc.steps.list.query({});
     // TODO: Store steps in local database
     
-    // Sync daily entries
+    // Sync daily entries from server to local
     const dailyEntries = await trpc.daily.getRecent.query({ limit: 100 });
-    // TODO: Store daily entries in local database
+    for (const entry of dailyEntries) {
+      await upsertDailyEntry({
+        id: entry.id, // Use server ID as primary key if exists
+        server_id: entry.id,
+        user_id: userId,
+        entry_date: entry.entry_date,
+        cravings_intensity: entry.cravings_intensity,
+        feelings: entry.feelings || [],
+        triggers: entry.triggers || [],
+        coping_actions: entry.coping_actions || [],
+        gratitude: entry.gratitude,
+        commitments: entry.commitments || [],
+        notes: entry.notes,
+        is_shared_with_sponsor: entry.is_shared_with_sponsor,
+        created_at: entry.created_at,
+        updated_at: entry.updated_at,
+        synced_at: new Date().toISOString(),
+        sync_status: 'synced',
+      });
+    }
     
     // Sync action plans
     const actionPlans = await trpc.plans.list.query({ limit: 100 });
@@ -97,16 +121,31 @@ async function syncDownFromServer(userId: string): Promise<void> {
 // Sync local changes to server
 async function syncUpToServer(userId: string): Promise<void> {
   try {
+    // Get pending daily entries specifically (they have dedicated functions)
+    const pendingDailyEntries = await getPendingDailyEntries(userId);
+    
+    // Get other pending items
     const pendingItems = await getPendingSyncItems(userId);
     
-    if (pendingItems.length === 0) {
+    // Filter out daily_entries from general pending items (we handle them separately)
+    const otherPendingItems = pendingItems.filter(item => item._table !== 'daily_entries');
+    
+    const totalPending = pendingDailyEntries.length + otherPendingItems.length;
+    
+    if (totalPending === 0) {
       console.log('No pending items to sync');
       return;
     }
 
-    console.log(`Syncing ${pendingItems.length} pending items...`);
+    console.log(`Syncing ${totalPending} pending items (${pendingDailyEntries.length} daily entries, ${otherPendingItems.length} other)...`);
 
-    for (const item of pendingItems) {
+    // Sync daily entries first (they're most critical)
+    for (const entry of pendingDailyEntries) {
+      await syncItemToServer(entry);
+    }
+    
+    // Then sync other items
+    for (const item of otherPendingItems) {
       await syncItemToServer(item);
     }
 
@@ -133,17 +172,35 @@ async function syncItemToServer(item: any): Promise<void> {
         break;
         
       case 'daily_entries':
-        await trpc.daily.upsert.mutate({
-          entry_date: itemData.entry_date,
-          cravings_intensity: itemData.cravings_intensity,
-          feelings: JSON.parse(itemData.feelings || '[]'),
-          triggers: JSON.parse(itemData.triggers || '[]'),
-          coping_actions: JSON.parse(itemData.coping_actions || '[]'),
-          gratitude: itemData.gratitude,
-          commitments: JSON.parse(itemData.commitments || '[]'),
-          notes: itemData.notes,
-          is_shared_with_sponsor: Boolean(itemData.is_shared_with_sponsor),
-        });
+        // Mark as syncing
+        await markDailyEntrySyncing(itemData.id);
+        
+        try {
+          const result = await trpc.daily.upsert.mutate({
+            entry_date: itemData.entry_date,
+            cravings_intensity: itemData.cravings_intensity,
+            feelings: itemData.feelings || [],
+            triggers: itemData.triggers || [],
+            coping_actions: itemData.coping_actions || [],
+            gratitude: itemData.gratitude || null,
+            commitments: itemData.commitments || [],
+            notes: itemData.notes || null,
+            is_shared_with_sponsor: Boolean(itemData.is_shared_with_sponsor),
+          });
+          
+          // Mark as synced with server ID
+          if (result?.id) {
+            await markDailyEntrySynced(itemData.id, result.id);
+          } else {
+            // If no ID returned, use entry_date to find and update
+            // This handles the case where server returns existing entry
+            throw new Error('No server ID returned');
+          }
+        } catch (error) {
+          // Mark as error on failure
+          await markDailyEntrySyncError(itemData.id);
+          throw error;
+        }
         break;
         
       case 'craving_events':

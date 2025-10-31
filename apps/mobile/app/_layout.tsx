@@ -5,6 +5,8 @@ import { TRPCProvider } from '../lib/trpc';
 import { Stack } from 'expo-router';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { initializeNotifications, addNotificationResponseListener, addNotificationReceivedListener } from '../lib/notifications';
+import { useNetworkSync } from '../hooks/useNetworkSync';
+import { initDatabase } from '../lib/db';
 
 /**
  * This component is the main navigator. It decides which screen to show based on
@@ -12,7 +14,19 @@ import { initializeNotifications, addNotificationResponseListener, addNotificati
  * at the root level.
  */
 function RootLayoutNav() {
-  const { session, isLoading } = useAuth();
+  const { session, isLoading, user } = useAuth();
+  
+  // Initialize database and network sync when user is authenticated
+  useEffect(() => {
+    if (session?.user) {
+      initDatabase().catch((error) => {
+        console.error('Failed to initialize database:', error);
+      });
+    }
+  }, [session]);
+
+  // Start network sync monitoring when user is authenticated
+  useNetworkSync(session?.user?.id ?? null);
 
   if (isLoading) {
     return (

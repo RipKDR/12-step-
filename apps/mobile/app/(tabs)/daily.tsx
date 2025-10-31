@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import { z } from 'zod';
 import { FormInput, Slider, ChipSelector, ActionButton } from '@repo/ui';
 import { trpc } from '../../lib/trpc';
 import { format } from 'date-fns';
+import { useAuth } from '../../hooks/useAuth';
+import { upsertDailyEntry, getDailyEntry } from '../../lib/db';
+import { forceSyncNow } from '../../lib/sync';
+import NetInfo from '@react-native-community/netinfo';
 
 const dailyEntrySchema = z.object({
   cravings_intensity: z.number().min(0).max(10),
@@ -75,13 +79,49 @@ const copingOptions = [
 export default function DailyScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'pending' | 'syncing' | 'synced' | 'error'>('synced');
+  const [isOnline, setIsOnline] = useState(true);
+  const { user } = useAuth();
+  const todayDate = format(new Date(), 'yyyy-MM-dd');
 
+  // Monitor network status
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsOnline(state.isConnected ?? false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load from local DB first, then sync from server
+  const [localEntry, setLocalEntry] = useState<any>(null);
+  useEffect(() => {
+    const loadLocalEntry = async () => {
+      if (!user?.id) return;
+      
+      try {
+        const entry = await getDailyEntry(user.id, todayDate);
+        if (entry) {
+          setLocalEntry(entry);
+          setSyncStatus(entry.sync_status || 'synced');
+        }
+      } catch (error) {
+        console.error('Failed to load local entry:', error);
+      }
+    };
+
+    loadLocalEntry();
+  }, [user?.id, todayDate]);
+
+  // Try to get from server as well (will merge with local if exists)
   const { data: todayEntry, refetch } = trpc.daily.getByDate.useQuery({
-    date: format(new Date(), 'yyyy-MM-dd'),
+    date: todayDate,
+  }, {
+    // Refetch on mount to sync from server
+    refetchOnMount: true,
   });
 
-  const createEntry = trpc.daily.create.useMutation();
-  const updateEntry = trpc.daily.update.useMutation();
+  const upsertMutation = trpc.daily.upsert.useMutation();
 
   const {
     control,
@@ -108,42 +148,89 @@ export default function DailyScreen() {
   const watchedCopingActions = watch('coping_actions');
   const watchedShareWithSponsor = watch('is_shared_with_sponsor');
 
+  // Merge local and server entries (local takes priority if pending sync)
   React.useEffect(() => {
-    if (todayEntry) {
+    const entryToUse = localEntry?.sync_status === 'pending' || localEntry?.sync_status === 'syncing' 
+      ? localEntry 
+      : todayEntry || localEntry;
+    
+    if (entryToUse) {
       reset({
-        cravings_intensity: todayEntry.cravings_intensity,
-        feelings: todayEntry.feelings || [],
-        triggers: todayEntry.triggers || [],
-        coping_actions: todayEntry.coping_actions || [],
-        gratitude: todayEntry.gratitude || '',
-        notes: todayEntry.notes || '',
-        is_shared_with_sponsor: todayEntry.is_shared_with_sponsor || false,
+        cravings_intensity: entryToUse.cravings_intensity ?? 0,
+        feelings: entryToUse.feelings || [],
+        triggers: entryToUse.triggers || [],
+        coping_actions: entryToUse.coping_actions || [],
+        gratitude: entryToUse.gratitude || '',
+        notes: entryToUse.notes || '',
+        is_shared_with_sponsor: entryToUse.is_shared_with_sponsor || false,
       });
       setIsEditing(true);
     }
-  }, [todayEntry, reset]);
+  }, [todayEntry, localEntry, reset]);
 
   const onSubmit = async (data: DailyEntryForm) => {
+    if (!user?.id) {
+      Alert.alert('Error', 'You must be logged in to save entries.');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
+      setSyncStatus('syncing');
 
-      if (isEditing && todayEntry) {
-        await updateEntry.mutateAsync({
-          id: todayEntry.id,
-          ...data,
+      // Save to local database first (offline-first)
+      const entryDate = todayDate;
+      const localId = localEntry?.id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      await upsertDailyEntry({
+        id: localId,
+        user_id: user.id,
+        entry_date: entryDate,
+        cravings_intensity: data.cravings_intensity,
+        feelings: data.feelings,
+        triggers: data.triggers,
+        coping_actions: data.coping_actions,
+        gratitude: data.gratitude,
+        commitments: [],
+        notes: data.notes,
+        is_shared_with_sponsor: data.is_shared_with_sponsor,
+        sync_status: 'pending', // Will be synced in background
+      });
+
+      // Update local entry state
+      const updatedEntry = await getDailyEntry(user.id, entryDate);
+      setLocalEntry(updatedEntry);
+      setSyncStatus('pending');
+
+      // Trigger sync in background if online
+      if (isOnline) {
+        forceSyncNow(user.id).catch((error) => {
+          console.error('Background sync failed:', error);
+          setSyncStatus('error');
         });
-      } else {
-        await createEntry.mutateAsync(data);
+        
+        // Wait a moment and check sync status
+        setTimeout(async () => {
+          const entry = await getDailyEntry(user.id, entryDate);
+          if (entry) {
+            setSyncStatus(entry.sync_status || 'synced');
+            setLocalEntry(entry);
+          }
+        }, 1000);
       }
 
       await refetch();
+      
       Alert.alert(
         'Success',
-        'Your daily entry has been saved.',
+        isOnline 
+          ? 'Your daily entry has been saved and will sync shortly.'
+          : 'Your daily entry has been saved offline and will sync when you reconnect.',
         [{ text: 'OK' }]
       );
     } catch (error) {
       console.error('Daily entry error:', error);
+      setSyncStatus('error');
       Alert.alert(
         'Error',
         'Unable to save your daily entry. Please try again.',
@@ -166,13 +253,53 @@ export default function DailyScreen() {
       <ScrollView style={styles.scrollView}>
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>Daily Entry</Text>
-            <Text style={styles.subtitle}>
-              {format(new Date(), 'EEEE, MMMM d, yyyy')}
-            </Text>
-            {isEditing && (
-              <Text style={styles.editingText}>Editing today's entry</Text>
-            )}
+            <View style={styles.headerRow}>
+              <View style={styles.headerTextContainer}>
+                <Text style={styles.title}>Daily Entry</Text>
+                <Text style={styles.subtitle}>
+                  {format(new Date(), 'EEEE, MMMM d, yyyy')}
+                </Text>
+                {isEditing && (
+                  <Text style={styles.editingText}>Editing today's entry</Text>
+                )}
+              </View>
+              {/* Sync Status Indicator */}
+              <View style={styles.syncStatusContainer}>
+                {syncStatus === 'pending' && (
+                  <View style={[styles.syncIndicator, styles.syncPending]}>
+                    <Text style={styles.syncText} accessibilityLabel="Sync status: Pending">
+                      ⏳
+                    </Text>
+                  </View>
+                )}
+                {syncStatus === 'syncing' && (
+                  <View style={[styles.syncIndicator, styles.syncSyncing]}>
+                    <Text style={styles.syncText} accessibilityLabel="Sync status: Syncing">
+                      🔄
+                    </Text>
+                  </View>
+                )}
+                {syncStatus === 'synced' && (
+                  <View style={[styles.syncIndicator, styles.syncSynced]}>
+                    <Text style={styles.syncText} accessibilityLabel="Sync status: Synced">
+                      ✓
+                    </Text>
+                  </View>
+                )}
+                {syncStatus === 'error' && (
+                  <View style={[styles.syncIndicator, styles.syncError]}>
+                    <Text style={styles.syncText} accessibilityLabel="Sync status: Error">
+                      ⚠️
+                    </Text>
+                  </View>
+                )}
+                {!isOnline && (
+                  <Text style={styles.offlineText} accessibilityLabel="Currently offline">
+                    Offline
+                  </Text>
+                )}
+              </View>
+            </View>
           </View>
 
           <View style={styles.form}>
@@ -330,11 +457,53 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 24,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#1f2937',
     marginBottom: 8,
+  },
+  syncStatusContainer: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    marginTop: 4,
+  },
+  syncIndicator: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  syncPending: {
+    backgroundColor: '#fef3c7', // Yellow background
+  },
+  syncSyncing: {
+    backgroundColor: '#dbeafe', // Blue background
+  },
+  syncSynced: {
+    backgroundColor: '#d1fae5', // Green background
+  },
+  syncError: {
+    backgroundColor: '#fee2e2', // Red background
+  },
+  syncText: {
+    fontSize: 16,
+  },
+  offlineText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+    fontWeight: '500',
   },
   subtitle: {
     fontSize: 16,

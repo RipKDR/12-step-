@@ -85,9 +85,24 @@ async function createTables(): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       synced_at TEXT,
+      sync_status TEXT CHECK (sync_status IN ('pending', 'syncing', 'synced', 'error')) DEFAULT 'pending',
+      server_id TEXT, -- UUID from Supabase after sync
       UNIQUE(user_id, entry_date)
     );
   `);
+  
+  // Migration: Add sync_status and server_id columns if they don't exist
+  // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we catch errors
+  try {
+    await db.execAsync(`ALTER TABLE daily_entries ADD COLUMN sync_status TEXT CHECK (sync_status IN ('pending', 'syncing', 'synced', 'error')) DEFAULT 'pending';`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
+  try {
+    await db.execAsync(`ALTER TABLE daily_entries ADD COLUMN server_id TEXT;`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
 
   // Craving events table
   await db.execAsync(`
@@ -256,35 +271,116 @@ export async function getDailyEntry(userId: string, date: string): Promise<any |
     WHERE user_id = ? AND entry_date = ?
   `, [userId, date]);
 
-  return result;
+  if (!result) return null;
+
+  // Parse JSON fields
+  return {
+    ...result,
+    feelings: result.feelings ? JSON.parse(result.feelings) : [],
+    triggers: result.triggers ? JSON.parse(result.triggers) : [],
+    coping_actions: result.coping_actions ? JSON.parse(result.coping_actions) : [],
+    commitments: result.commitments ? JSON.parse(result.commitments) : [],
+    is_shared_with_sponsor: Boolean(result.is_shared_with_sponsor),
+  };
 }
 
 // Upsert daily entry to local database
+// If entry doesn't have server_id, it's a local entry and will be synced later
 export async function upsertDailyEntry(entry: any): Promise<void> {
   if (!db) throw new Error('Database not initialized');
+
+  // Determine sync status
+  let syncStatus = entry.sync_status || 'pending';
+  if (entry.server_id) {
+    // Entry already synced before
+    syncStatus = entry.synced_at ? 'synced' : 'pending';
+  } else if (!entry.id?.startsWith('temp_')) {
+    // Entry has non-temp ID but no server_id means it needs sync
+    syncStatus = 'pending';
+  }
+
+  const localId = entry.id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   await db.runAsync(`
     INSERT OR REPLACE INTO daily_entries (
       id, user_id, entry_date, cravings_intensity, feelings, triggers,
       coping_actions, gratitude, commitments, notes, is_shared_with_sponsor,
-      created_at, updated_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      created_at, updated_at, synced_at, sync_status, server_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
-    entry.id,
+    localId,
     entry.user_id,
     entry.entry_date,
-    entry.cravings_intensity,
+    entry.cravings_intensity ?? null,
     JSON.stringify(entry.feelings || []),
     JSON.stringify(entry.triggers || []),
     JSON.stringify(entry.coping_actions || []),
-    entry.gratitude,
+    entry.gratitude || null,
     JSON.stringify(entry.commitments || []),
-    entry.notes,
+    entry.notes || null,
     entry.is_shared_with_sponsor ? 1 : 0,
     entry.created_at || new Date().toISOString(),
     entry.updated_at || new Date().toISOString(),
     entry.synced_at || null,
+    syncStatus,
+    entry.server_id || null,
   ]);
+}
+
+// Mark daily entry as synced
+export async function markDailyEntrySynced(localId: string, serverId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(`
+    UPDATE daily_entries 
+    SET sync_status = 'synced', 
+        server_id = ?,
+        synced_at = datetime('now')
+    WHERE id = ?
+  `, [serverId, localId]);
+}
+
+// Mark daily entry as syncing
+export async function markDailyEntrySyncing(localId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(`
+    UPDATE daily_entries 
+    SET sync_status = 'syncing'
+    WHERE id = ?
+  `, [localId]);
+}
+
+// Mark daily entry sync error
+export async function markDailyEntrySyncError(localId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(`
+    UPDATE daily_entries 
+    SET sync_status = 'error'
+    WHERE id = ?
+  `, [localId]);
+}
+
+// Get pending daily entries for sync
+export async function getPendingDailyEntries(userId: string): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const results = await db.getAllAsync(`
+    SELECT * FROM daily_entries 
+    WHERE user_id = ? AND sync_status = 'pending'
+    ORDER BY created_at ASC
+  `, [userId]);
+
+  return results.map((row: any) => ({
+    ...row,
+    feelings: row.feelings ? JSON.parse(row.feelings) : [],
+    triggers: row.triggers ? JSON.parse(row.triggers) : [],
+    coping_actions: row.coping_actions ? JSON.parse(row.coping_actions) : [],
+    commitments: row.commitments ? JSON.parse(row.commitments) : [],
+    is_shared_with_sponsor: Boolean(row.is_shared_with_sponsor),
+    _table: 'daily_entries', // For sync routing
+  }));
 }
 
 // Get steps from local database
