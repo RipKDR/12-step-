@@ -21,7 +21,7 @@ const dailyEntrySchema = z.object({
   coping_actions: z.array(z.string()),
   gratitude: z.string().optional(),
   notes: z.string().optional(),
-  share_with_sponsor: z.boolean().default(false),
+  is_shared_with_sponsor: z.boolean().default(false),
 });
 
 type DailyEntryForm = z.infer<typeof dailyEntrySchema>;
@@ -89,14 +89,14 @@ export default function DailyDemoScreen() {
       coping_actions: ['meeting', 'prayer'],
       gratitude: 'Grateful for another day of sobriety and the support of my sponsor',
       notes: 'Had a challenging day at work but stayed focused on recovery',
-      share_with_sponsor: true,
+      is_shared_with_sponsor: true,
     },
   });
 
   const watchedFeelings = watch('feelings');
   const watchedTriggers = watch('triggers');
   const watchedCopingActions = watch('coping_actions');
-  const watchedShareWithSponsor = watch('share_with_sponsor');
+  const watchedShareWithSponsor = watch('is_shared_with_sponsor');
 
   const onSubmit = async (data: DailyEntryForm) => {
     try {
@@ -259,7 +259,7 @@ export default function DailyDemoScreen() {
               <ActionButton
                 title={watchedShareWithSponsor ? 'Sharing with sponsor' : 'Share with sponsor'}
                 variant={watchedShareWithSponsor ? 'primary' : 'secondary'}
-                onPress={() => setValue('share_with_sponsor', !watchedShareWithSponsor)}
+                onPress={() => setValue('is_shared_with_sponsor', !watchedShareWithSponsor)}
                 size="small"
                 accessibilityLabel={watchedShareWithSponsor ? 'Stop sharing with sponsor' : 'Share with sponsor'}
                 accessibilityHint="Toggle whether to share this entry with your sponsor"

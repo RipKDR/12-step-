@@ -3,6 +3,7 @@ import type { AppRouter } from '@repo/api';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { httpBatchLink } from '@trpc/client';
+import Constants from 'expo-constants';
 // FIX: Use relative paths for local module imports.
 import { supabase } from './supabase';
 
@@ -17,9 +18,9 @@ export const TRPCProvider: React.FC<{ children: React.ReactNode }> = ({ children
     trpc.createClient({
       links: [
         httpBatchLink({
-          // This should point to your deployed or local Next.js tRPC server
-          // TODO: Use an environment variable for this
-          url: 'http://localhost:3000/api/trpc', 
+          // Use environment variable for tRPC server URL
+          // Falls back to localhost for local development
+          url: (Constants.expoConfig?.extra?.trpcUrl || process.env.EXPO_PUBLIC_TRPC_URL || 'http://localhost:3000/api/trpc') as string, 
           async headers() {
             const { data: { session } } = await supabase.auth.getSession();
             const token = session?.access_token;

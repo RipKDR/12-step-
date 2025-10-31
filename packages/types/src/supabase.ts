@@ -107,7 +107,7 @@ export interface Database {
           gratitude: string | null;
           commitments: string[] | null;
           notes: string | null;
-          share_with_sponsor: boolean;
+          is_shared_with_sponsor: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -122,7 +122,7 @@ export interface Database {
           gratitude?: string | null;
           commitments?: string[] | null;
           notes?: string | null;
-          share_with_sponsor?: boolean;
+          is_shared_with_sponsor?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -137,7 +137,7 @@ export interface Database {
           gratitude?: string | null;
           commitments?: string[] | null;
           notes?: string | null;
-          share_with_sponsor?: boolean;
+          is_shared_with_sponsor?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -146,7 +146,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          occured_at: string;
+          occurred_at: string;
           intensity: number | null;
           trigger_type: string | null;
           lat: number | null;
@@ -158,7 +158,7 @@ export interface Database {
         Insert: {
           id?: string;
           user_id: string;
-          occured_at?: string;
+          occurred_at?: string;
           intensity?: number | null;
           trigger_type?: string | null;
           lat?: number | null;
@@ -170,7 +170,7 @@ export interface Database {
         Update: {
           id?: string;
           user_id?: string;
-          occured_at?: string;
+          occurred_at?: string;
           intensity?: number | null;
           trigger_type?: string | null;
           lat?: number | null;
@@ -603,7 +603,7 @@ export const DailyEntrySchema = z.object({
   gratitude: z.string().nullable(),
   commitments: z.array(z.string()).nullable(),
   notes: z.string().nullable(),
-  share_with_sponsor: z.boolean(),
+  is_shared_with_sponsor: z.boolean(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -611,7 +611,7 @@ export const DailyEntrySchema = z.object({
 export const CravingEventSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
-  occured_at: z.string(),
+  occurred_at: z.string(),
   intensity: z.number().min(0).max(10).nullable(),
   trigger_type: z.string().nullable(),
   lat: z.number().nullable(),

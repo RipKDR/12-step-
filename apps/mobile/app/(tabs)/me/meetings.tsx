@@ -64,10 +64,19 @@ export default function MeetingsScreen() {
 
   const handleExportToCalendar = async (meeting: any) => {
     try {
-      // In a real app, you'd generate an .ics file and open it
+      const { generateICS, meetingToCalendarEvent } = require('../../../lib/calendar');
+      const event = meetingToCalendarEvent(meeting);
+      const icsContent = generateICS([event]);
+      
+      // In a production app, you would:
+      // 1. Save the .ics file to device storage
+      // 2. Use expo-file-system and expo-sharing to share/open it
+      // 3. Or use a calendar library to directly add to device calendar
+      
+      // For now, show success message
       Alert.alert(
         'Export to Calendar',
-        'This would export the meeting to your calendar. Feature coming soon!',
+        'Calendar export generated. In production, this would open your calendar app.',
         [{ text: 'OK' }]
       );
     } catch (error) {

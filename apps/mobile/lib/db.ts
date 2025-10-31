@@ -81,7 +81,7 @@ async function createTables(): Promise<void> {
       gratitude TEXT,
       commitments TEXT, -- JSON string
       notes TEXT,
-      share_with_sponsor INTEGER NOT NULL DEFAULT 0,
+      is_shared_with_sponsor INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       synced_at TEXT,
@@ -94,7 +94,7 @@ async function createTables(): Promise<void> {
     CREATE TABLE IF NOT EXISTS craving_events (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      occured_at TEXT NOT NULL DEFAULT (datetime('now')),
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
       intensity INTEGER CHECK (intensity BETWEEN 0 AND 10),
       trigger_type TEXT,
       lat REAL,
@@ -211,7 +211,7 @@ async function createTables(): Promise<void> {
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_step_entries_user_step ON step_entries(user_id, step_id);
     CREATE INDEX IF NOT EXISTS idx_daily_entries_user_date ON daily_entries(user_id, entry_date);
-    CREATE INDEX IF NOT EXISTS idx_craving_events_user_time ON craving_events(user_id, occured_at);
+    CREATE INDEX IF NOT EXISTS idx_craving_events_user_time ON craving_events(user_id, occurred_at);
     CREATE INDEX IF NOT EXISTS idx_trigger_locations_user ON trigger_locations(user_id);
     CREATE INDEX IF NOT EXISTS idx_routine_logs_user ON routine_logs(user_id);
   `);
@@ -266,7 +266,7 @@ export async function upsertDailyEntry(entry: any): Promise<void> {
   await db.runAsync(`
     INSERT OR REPLACE INTO daily_entries (
       id, user_id, entry_date, cravings_intensity, feelings, triggers,
-      coping_actions, gratitude, commitments, notes, share_with_sponsor,
+      coping_actions, gratitude, commitments, notes, is_shared_with_sponsor,
       created_at, updated_at, synced_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
@@ -280,7 +280,7 @@ export async function upsertDailyEntry(entry: any): Promise<void> {
     entry.gratitude,
     JSON.stringify(entry.commitments || []),
     entry.notes,
-    entry.share_with_sponsor ? 1 : 0,
+    entry.is_shared_with_sponsor ? 1 : 0,
     entry.created_at || new Date().toISOString(),
     entry.updated_at || new Date().toISOString(),
     entry.synced_at || null,

@@ -142,7 +142,7 @@ async function syncItemToServer(item: any): Promise<void> {
           gratitude: itemData.gratitude,
           commitments: JSON.parse(itemData.commitments || '[]'),
           notes: itemData.notes,
-          share_with_sponsor: Boolean(itemData.share_with_sponsor),
+          is_shared_with_sponsor: Boolean(itemData.is_shared_with_sponsor),
         });
         break;
         

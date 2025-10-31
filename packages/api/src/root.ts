@@ -8,6 +8,9 @@ import { sponsorRouter } from './routers/sponsor';
 import { triggersRouter } from './routers/triggers';
 import { notificationsRouter } from './routers/notifications';
 import { exportRouter } from './routers/export';
+import { meetingsRouter } from './routers/meetings';
+import { messagesRouter } from './routers/messages';
+import { riskRouter } from './routers/risk';
 
 export const appRouter = router({
   // FIX: Renaming 'user' to 'users' to avoid potential naming conflicts with
@@ -21,6 +24,9 @@ export const appRouter = router({
   triggers: triggersRouter,
   notifications: notificationsRouter,
   export: exportRouter,
+  meetings: meetingsRouter,
+  messages: messagesRouter,
+  risk: riskRouter,
 });
 
 export type AppRouter = typeof appRouter;

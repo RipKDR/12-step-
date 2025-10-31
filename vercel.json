@@ -9,6 +9,10 @@
       "schedule": "0 9 * * 1"
     }
   ],
+  "buildCommand": "cd apps/web && pnpm build",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
   "functions": {
     "apps/web/src/app/api/cron/routine-nudges/route.ts": {
       "maxDuration": 30

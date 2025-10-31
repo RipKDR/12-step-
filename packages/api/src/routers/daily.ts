@@ -76,7 +76,7 @@ export const dailyRouter = router({
 
   // Quick craving event log
   logCraving: protectedProcedure
-    .input(CravingEventSchema.omit({ id: true, user_id: true, occured_at: true, created_at: true }).extend({
+    .input(CravingEventSchema.omit({ id: true, user_id: true, occurred_at: true, created_at: true }).extend({
       intensity: z.number().min(0).max(10),
       trigger_type: z.string().optional(),
       lat: z.number().optional(),
@@ -319,9 +319,9 @@ export const dailyRouter = router({
         .from('craving_events')
         .select('*')
         .eq('user_id', ctx.user.id)
-        .gte('occured_at', input.startDate)
-        .lte('occured_at', input.endDate)
-        .order('occured_at', { ascending: false })
+        .gte('occurred_at', input.startDate)
+        .lte('occurred_at', input.endDate)
+        .order('occurred_at', { ascending: false })
         .limit(input.limit);
 
       if (error) {

@@ -167,7 +167,7 @@ export const triggersRouter = router({
         .from('craving_events')
         .insert({
           user_id: ctx.user.id,
-          occured_at: input.timestamp,
+          occurred_at: input.timestamp,
           intensity: 5, // Default intensity for geofence triggers
           trigger_type: 'location',
           lat: input.lat,
@@ -252,7 +252,7 @@ export const triggersRouter = router({
         .from('craving_events')
         .insert({
           user_id: ctx.user.id,
-          occured_at: input.timestamp,
+          occurred_at: input.timestamp,
           intensity: 0, // Exit events typically have low intensity
           trigger_type: 'location_exit',
           lat: input.lat,
@@ -359,7 +359,7 @@ export const triggersRouter = router({
         .from('craving_events')
         .insert({
           user_id: ctx.user.id,
-          occured_at: now,
+          occurred_at: now,
           intensity: 5,
           trigger_type: 'location_test',
           lat: trigger.lat,

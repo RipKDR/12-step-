@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import { Database } from '@repo/types';
 
-// In a real app, these would be loaded from environment variables.
-// For the preview to work, we use placeholder values.
+// Load Supabase configuration from environment variables via Expo Constants
+// Expo automatically injects EXPO_PUBLIC_* variables at build time via app.json extra field
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || "https://your-project-id.supabase.co";
 const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey || "your-anon-key";
 

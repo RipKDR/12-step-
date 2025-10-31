@@ -85,7 +85,7 @@ export const exportRouter = router({
           .from('craving_events')
           .select('*')
           .eq('user_id', userId)
-          .order('occured_at', { ascending: false });
+          .order('occurred_at', { ascending: false });
 
         if (cravingEventsError) {
           throw new Error(`Failed to fetch craving events: ${cravingEventsError.message}`);

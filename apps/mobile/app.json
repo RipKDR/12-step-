@@ -53,8 +53,8 @@
       "eas": {
         "projectId": "${EXPO_PROJECT_ID}"
       },
-      "supabaseUrl": "${NEXT_PUBLIC_SUPABASE_URL}",
-      "supabaseAnonKey": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+      "supabaseUrl": "${EXPO_PUBLIC_SUPABASE_URL}",
+      "supabaseAnonKey": "${EXPO_PUBLIC_SUPABASE_ANON_KEY}"
     }
   }
 }

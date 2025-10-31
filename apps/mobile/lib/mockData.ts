@@ -97,7 +97,7 @@ export const mockDailyEntries = [
     coping_actions: ['meeting', 'prayer'],
     gratitude: 'Grateful for another day of sobriety and the support of my sponsor',
     notes: 'Had a challenging day at work but stayed focused on recovery',
-    share_with_sponsor: true,
+    is_shared_with_sponsor: true,
     created_at: '2024-01-26T20:00:00Z'
   },
   {
@@ -109,7 +109,7 @@ export const mockDailyEntries = [
     coping_actions: ['meditation', 'exercise'],
     gratitude: 'Grateful for the peace and clarity I feel today',
     notes: 'Great day! Attended a meeting and felt very connected',
-    share_with_sponsor: true,
+    is_shared_with_sponsor: true,
     created_at: '2024-01-25T19:30:00Z'
   }
 ];

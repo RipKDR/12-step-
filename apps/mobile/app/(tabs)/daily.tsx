@@ -22,7 +22,7 @@ const dailyEntrySchema = z.object({
   coping_actions: z.array(z.string()),
   gratitude: z.string().optional(),
   notes: z.string().optional(),
-  share_with_sponsor: z.boolean().default(false),
+  is_shared_with_sponsor: z.boolean().default(false),
 });
 
 type DailyEntryForm = z.infer<typeof dailyEntrySchema>;
@@ -99,14 +99,14 @@ export default function DailyScreen() {
       coping_actions: [],
       gratitude: '',
       notes: '',
-      share_with_sponsor: false,
+      is_shared_with_sponsor: false,
     },
   });
 
   const watchedFeelings = watch('feelings');
   const watchedTriggers = watch('triggers');
   const watchedCopingActions = watch('coping_actions');
-  const watchedShareWithSponsor = watch('share_with_sponsor');
+  const watchedShareWithSponsor = watch('is_shared_with_sponsor');
 
   React.useEffect(() => {
     if (todayEntry) {
@@ -117,7 +117,7 @@ export default function DailyScreen() {
         coping_actions: todayEntry.coping_actions || [],
         gratitude: todayEntry.gratitude || '',
         notes: todayEntry.notes || '',
-        share_with_sponsor: todayEntry.share_with_sponsor || false,
+        is_shared_with_sponsor: todayEntry.is_shared_with_sponsor || false,
       });
       setIsEditing(true);
     }
@@ -293,7 +293,7 @@ export default function DailyScreen() {
               <ActionButton
                 title={watchedShareWithSponsor ? 'Sharing with sponsor' : 'Share with sponsor'}
                 variant={watchedShareWithSponsor ? 'primary' : 'secondary'}
-                onPress={() => setValue('share_with_sponsor', !watchedShareWithSponsor)}
+                onPress={() => setValue('is_shared_with_sponsor', !watchedShareWithSponsor)}
                 size="small"
                 accessibilityLabel={watchedShareWithSponsor ? 'Stop sharing with sponsor' : 'Share with sponsor'}
                 accessibilityHint="Toggle whether to share this entry with your sponsor"
