@@ -1,0 +1,92 @@
+---
+alwaysApply: true
+description: Architecture and project structure guidelines for the 12-step recovery companion
+---
+
+# Architecture & Project Structure
+
+## Monorepo Structure
+This is a privacy-first 12-step recovery companion built as a monorepo with:
+- **apps/mobile**: Expo (React Native) app for users
+- **apps/web**: Next.js 14 (App Router) sponsor/admin portal  
+- **packages/api**: Shared tRPC routers
+- **packages/ui**: Shared React/React Native components
+- **packages/types**: Zod schemas and TypeScript types
+- **supabase/**: Database migrations and seed scripts
+
+## Core Architecture Principles
+
+### Privacy-First Design
+- **RLS-by-default**: All database tables have Row Level Security enabled
+- **User-controlled sharing**: Sponsors can only see explicitly shared content
+- **No service role key on client**: Use anon key only, server procedures for sensitive operations
+- **Optional client-side encryption**: Use libsodium for sensitive messages
+- **Data export/delete**: Users can export or delete their data anytime
+
+### Offline-First Mobile
+- **SQLite cache**: Local storage for offline functionality
+- **Background tasks**: Geofencing and routine notifications
+- **Secure storage**: Use expo-secure-store for sensitive data
+- **Sync when online**: TanStack Query for data synchronization
+
+### Technology Stack
+- **Mobile**: Expo (React Native, TypeScript), expo-location, TaskManager, expo-notifications, expo-secure-store, SQLite, React Hook Form + Zod, TanStack Query
+- **Web**: Next.js 14 (App Router) + tRPC + NextAuth (Supabase adapter)
+- **Backend**: Supabase (Postgres + Auth + Storage) with RLS
+- **Observability**: Sentry, PostHog (anonymous), feature flags optional
+
+## File Organization
+
+### Mobile App Structure
+```
+apps/mobile/
+├── app/                    # Expo Router pages
+│   ├── (auth)/            # Authentication screens
+│   └── (tabs)/            # Main app tabs
+├── components/            # React Native components
+├── hooks/                 # Custom hooks
+├── lib/                   # Utilities and config
+└── tasks/                 # Background tasks (geofencing)
+```
+
+### Web App Structure
+```
+apps/web/
+├── src/app/               # Next.js App Router
+│   ├── api/trpc/         # tRPC API routes
+│   └── layout.tsx        # Root layout
+└── src/lib/              # Utilities and config
+```
+
+### Shared Packages
+```
+packages/
+├── api/                   # tRPC routers and procedures
+├── types/                 # Zod schemas and TypeScript types
+└── ui/                    # Shared UI components
+```
+
+## Data Flow
+1. User signs up → Supabase Auth → Profile creation
+2. Choose program (NA/AA) → Load step prompts from database
+3. Create step entries → Versioned with optional sponsor sharing
+4. Daily logging → Cravings, feelings, triggers, coping actions
+5. Action plans & routines → If-then plans with emergency contacts
+6. Sponsor linking → Code-based relationship with selective sharing
+7. Geofencing → Background location monitoring with trigger actions
+
+## Key Features
+- **Step Work**: Copyright-safe prompts, versioned entries, markdown diff view
+- **Daily Tracking**: Cravings (0-10), feelings, triggers, coping actions, gratitude
+- **Action Plans**: If-then scenarios with emergency contacts
+- **Routines**: Scheduled tasks with completion tracking
+- **Sponsor Portal**: Read-only views of shared content
+- **Meetings**: BMLT/AA integration with calendar export
+- **Support Card**: Breathing timer, grounding exercises, crisis resources
+
+## Quality Standards
+- **WCAG 2.2 AA**: Accessible UI with large touch targets
+- **TypeScript strict**: No any types, proper error handling
+- **Environment-driven**: No hardcoded secrets
+- **Incremental delivery**: Ship features in slices, avoid monolithic dumps
+- **Copyright compliance**: Never include copyrighted NA/AA text, only neutral summaries

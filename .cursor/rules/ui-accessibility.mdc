@@ -1,0 +1,890 @@
+# UI/UX & Accessibility Guidelines
+
+## WCAG 2.2 AA Compliance
+
+### Core Accessibility Principles
+- **Perceivable**: Information must be presentable in ways users can perceive
+- **Operable**: Interface components must be operable by all users
+- **Understandable**: Information and UI operation must be understandable
+- **Robust**: Content must be robust enough for various assistive technologies
+
+### Color and Contrast
+- **Contrast ratio**: Minimum 4.5:1 for normal text, 3:1 for large text
+- **Color independence**: Never rely on color alone to convey information
+- **Focus indicators**: Clear visual focus indicators for keyboard navigation
+- **High contrast mode**: Support system high contrast preferences
+
+### Typography and Readability
+- **Font size**: Minimum 16px for body text, scalable with user preferences
+- **Line height**: 1.5x font size for body text, 1.2x for headings
+- **Font weight**: Use sufficient weight for readability (400+ for body)
+- **Text spacing**: Adequate spacing between lines, paragraphs, and sections
+
+## Mobile-First Design
+
+### Touch Targets
+- **Minimum size**: 44x44 points (iOS) / 48x48dp (Android) for touch targets
+- **Spacing**: 8dp minimum spacing between touch targets
+- **Thumb zones**: Place primary actions in easy thumb reach areas
+- **Gesture support**: Support standard gestures (swipe, pinch, tap)
+
+### Responsive Design
+- **Breakpoints**: Mobile (320px+), Tablet (768px+), Desktop (1024px+)
+- **Flexible layouts**: Use CSS Grid and Flexbox for responsive layouts
+- **Scalable images**: Use responsive images with proper srcset
+- **Orientation support**: Support both portrait and landscape orientations
+
+### Mobile-Specific Considerations
+- **Safe areas**: Respect device safe areas (notches, home indicators)
+- **Keyboard handling**: Proper keyboard avoidance and dismissal
+- **Haptic feedback**: Use appropriate haptic feedback for interactions
+- **Performance**: Optimize for mobile performance and battery life
+
+## Component Design System
+
+### Button Components
+```typescript
+// Accessible button with proper ARIA attributes
+interface ButtonProps {
+  children: React.ReactNode;
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+  disabled?: boolean;
+  loading?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  onPress: () => void;
+}
+
+export const Button: React.FC<ButtonProps> = ({
+  children,
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  loading = false,
+  accessibilityLabel,
+  accessibilityHint,
+  onPress,
+  ...props
+}) => {
+  const buttonStyle = [
+    styles.button,
+    styles[variant],
+    styles[size],
+    disabled && styles.disabled,
+  ];
+
+  return (
+    <Pressable
+      style={buttonStyle}
+      onPress={onPress}
+      disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel || children}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: disabled || loading }}
+      {...props}
+    >
+      {loading ? (
+        <ActivityIndicator color="white" size="small" />
+      ) : (
+        <Text style={[styles.buttonText, styles[variant + 'Text']]}>
+          {children}
+        </Text>
+      )}
+    </Pressable>
+  );
+};
+```
+
+### Form Components
+```typescript
+// Accessible form input with proper labeling
+interface InputProps {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  error?: string;
+  required?: boolean;
+  multiline?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+}
+
+export const Input: React.FC<InputProps> = ({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  error,
+  required = false,
+  multiline = false,
+  accessibilityLabel,
+  accessibilityHint,
+}) => {
+  const inputId = useId();
+  const errorId = useId();
+
+  return (
+    <View style={styles.inputContainer}>
+      <Text
+        nativeID={`${inputId}-label`}
+        style={[styles.label, error && styles.labelError]}
+      >
+        {label}
+        {required && <Text style={styles.required}> *</Text>}
+      </Text>
+      
+      <TextInput
+        id={inputId}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        multiline={multiline}
+        style={[
+          styles.input,
+          error && styles.inputError,
+          multiline && styles.inputMultiline,
+        ]}
+        accessibilityLabel={accessibilityLabel || label}
+        accessibilityHint={accessibilityHint}
+        accessibilityRequired={required}
+        accessibilityInvalid={!!error}
+        accessibilityDescribedBy={error ? errorId : undefined}
+        aria-describedby={error ? errorId : undefined}
+      />
+      
+      {error && (
+        <Text
+          id={errorId}
+          style={styles.errorText}
+          accessibilityLiveRegion="assertive"
+        >
+          {error}
+        </Text>
+      )}
+    </View>
+  );
+};
+```
+
+### Navigation Components
+```typescript
+// Accessible tab navigation
+interface TabNavigationProps {
+  tabs: Array<{
+    id: string;
+    label: string;
+    icon: string;
+    accessibilityLabel?: string;
+  }>;
+  activeTab: string;
+  onTabChange: (tabId: string) => void;
+}
+
+export const TabNavigation: React.FC<TabNavigationProps> = ({
+  tabs,
+  activeTab,
+  onTabChange,
+}) => {
+  return (
+    <View
+      style={styles.tabContainer}
+      accessibilityRole="tablist"
+      accessibilityLabel="Main navigation"
+    >
+      {tabs.map((tab) => (
+        <Pressable
+          key={tab.id}
+          style={[
+            styles.tab,
+            activeTab === tab.id && styles.tabActive,
+          ]}
+          onPress={() => onTabChange(tab.id)}
+          accessibilityRole="tab"
+          accessibilityLabel={tab.accessibilityLabel || tab.label}
+          accessibilityState={{ selected: activeTab === tab.id }}
+          accessibilityHint={`Navigate to ${tab.label} section`}
+        >
+          <Ionicons
+            name={tab.icon as any}
+            size={24}
+            color={activeTab === tab.id ? '#007AFF' : '#666'}
+          />
+          <Text
+            style={[
+              styles.tabLabel,
+              activeTab === tab.id && styles.tabLabelActive,
+            ]}
+          >
+            {tab.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+};
+```
+
+## Screen Reader Support
+
+### Semantic HTML/JSX
+```typescript
+// Use proper semantic elements
+export const DailyEntryScreen: React.FC = () => {
+  return (
+    <View accessibilityRole="main" accessibilityLabel="Daily entry screen">
+      <Text accessibilityRole="header" style={styles.title}>
+        How are you feeling today?
+      </Text>
+      
+      <View accessibilityRole="form" accessibilityLabel="Daily entry form">
+        <Input
+          label="Cravings Intensity"
+          value={cravingsIntensity.toString()}
+          onChangeText={setCravingsIntensity}
+          accessibilityLabel="Rate your cravings intensity from 0 to 10"
+          accessibilityHint="Use the slider to select your cravings intensity level"
+        />
+        
+        <View accessibilityRole="group" accessibilityLabel="Feelings selection">
+          <Text style={styles.sectionTitle}>Select your feelings:</Text>
+          <FeelingsSelector
+            selected={feelings}
+            onSelectionChange={setFeelings}
+            accessibilityLabel="Choose from available feelings"
+          />
+        </View>
+      </View>
+    </View>
+  );
+};
+```
+
+### ARIA Attributes
+```typescript
+// Proper ARIA attributes for complex components
+export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
+  currentStep,
+  totalSteps,
+  steps,
+}) => {
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{
+        min: 1,
+        max: totalSteps,
+        now: currentStep,
+        text: `Step ${currentStep} of ${totalSteps}`,
+      }}
+      accessibilityLabel="Progress through steps"
+    >
+      <View style={styles.progressContainer}>
+        {steps.map((step, index) => (
+          <View
+            key={step.id}
+            style={[
+              styles.step,
+              index < currentStep && styles.stepCompleted,
+              index === currentStep - 1 && styles.stepCurrent,
+            ]}
+            accessibilityRole="img"
+            accessibilityLabel={`Step ${index + 1}: ${step.title}`}
+            accessibilityState={{
+              checked: index < currentStep,
+              current: index === currentStep - 1,
+            }}
+          >
+            <Text style={styles.stepNumber}>{index + 1}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+```
+
+## Keyboard Navigation
+
+### Focus Management
+```typescript
+// Focus management for modals and overlays
+export const Modal: React.FC<ModalProps> = ({
+  visible,
+  onClose,
+  children,
+  title,
+}) => {
+  const firstFocusableRef = useRef<View>(null);
+  const lastFocusableRef = useRef<View>(null);
+
+  useEffect(() => {
+    if (visible) {
+      // Focus first focusable element when modal opens
+      setTimeout(() => {
+        firstFocusableRef.current?.focus();
+      }, 100);
+    }
+  }, [visible]);
+
+  const handleKeyPress = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  if (!visible) return null;
+
+  return (
+    <View
+      style={styles.modalOverlay}
+      accessibilityRole="dialog"
+      accessibilityModal={true}
+      accessibilityLabel={title}
+      onKeyDown={handleKeyPress}
+    >
+      <View style={styles.modalContent}>
+        <View
+          ref={firstFocusableRef}
+          style={styles.closeButton}
+          accessibilityRole="button"
+          accessibilityLabel="Close modal"
+          onPress={onClose}
+        >
+          <Ionicons name="close" size={24} color="#666" />
+        </View>
+        
+        {children}
+        
+        <View
+          ref={lastFocusableRef}
+          style={styles.modalActions}
+        >
+          <Button onPress={onClose}>Close</Button>
+        </View>
+      </View>
+    </View>
+  );
+};
+```
+
+### Tab Order
+```typescript
+// Proper tab order for forms
+export const StepWorkForm: React.FC = () => {
+  const [currentStep, setCurrentStep] = useState(0);
+  const formRefs = useRef<(TextInput | null)[]>([]);
+
+  const focusNext = () => {
+    const nextIndex = currentStep + 1;
+    if (nextIndex < formRefs.current.length) {
+      formRefs.current[nextIndex]?.focus();
+    }
+  };
+
+  const focusPrevious = () => {
+    const prevIndex = currentStep - 1;
+    if (prevIndex >= 0) {
+      formRefs.current[prevIndex]?.focus();
+    }
+  };
+
+  return (
+    <View style={styles.form}>
+      {steps.map((step, index) => (
+        <View
+          key={step.id}
+          style={[
+            styles.stepContainer,
+            index === currentStep && styles.stepActive,
+          ]}
+        >
+          <Text style={styles.stepTitle}>{step.title}</Text>
+          
+          <TextInput
+            ref={(ref) => (formRefs.current[index] = ref)}
+            style={styles.stepInput}
+            multiline
+            placeholder={step.placeholder}
+            accessibilityLabel={`Step ${index + 1}: ${step.title}`}
+            accessibilityHint="Enter your response to this step"
+            onSubmitEditing={focusNext}
+            onKeyPress={(e) => {
+              if (e.nativeEvent.key === 'Tab') {
+                e.preventDefault();
+                if (e.nativeEvent.shiftKey) {
+                  focusPrevious();
+                } else {
+                  focusNext();
+                }
+              }
+            }}
+          />
+        </View>
+      ))}
+    </View>
+  );
+};
+```
+
+## Visual Design
+
+### Color Palette
+```typescript
+// Accessible color palette
+export const colors = {
+  // Primary colors with sufficient contrast
+  primary: {
+    50: '#f0f9ff',
+    100: '#e0f2fe',
+    200: '#bae6fd',
+    300: '#7dd3fc',
+    400: '#38bdf8',
+    500: '#0ea5e9', // Main primary color
+    600: '#0284c7',
+    700: '#0369a1',
+    800: '#075985',
+    900: '#0c4a6e',
+  },
+  
+  // Neutral colors for text and backgrounds
+  neutral: {
+    50: '#fafafa',
+    100: '#f5f5f5',
+    200: '#e5e5e5',
+    300: '#d4d4d4',
+    400: '#a3a3a3',
+    500: '#737373',
+    600: '#525252',
+    700: '#404040',
+    800: '#262626',
+    900: '#171717',
+  },
+  
+  // Semantic colors
+  success: '#10b981',
+  warning: '#f59e0b',
+  error: '#ef4444',
+  info: '#3b82f6',
+  
+  // High contrast colors for accessibility
+  highContrast: {
+    text: '#000000',
+    background: '#ffffff',
+    border: '#000000',
+  },
+} as const;
+```
+
+### Typography Scale
+```typescript
+// Accessible typography scale
+export const typography = {
+  // Font sizes with proper scaling
+  fontSize: {
+    xs: 12,
+    sm: 14,
+    base: 16, // Minimum readable size
+    lg: 18,
+    xl: 20,
+    '2xl': 24,
+    '3xl': 30,
+    '4xl': 36,
+    '5xl': 48,
+  },
+  
+  // Line heights for readability
+  lineHeight: {
+    tight: 1.2,
+    normal: 1.5,
+    relaxed: 1.75,
+  },
+  
+  // Font weights
+  fontWeight: {
+    normal: '400',
+    medium: '500',
+    semibold: '600',
+    bold: '700',
+  },
+  
+  // Letter spacing for readability
+  letterSpacing: {
+    tight: -0.025,
+    normal: 0,
+    wide: 0.025,
+  },
+} as const;
+```
+
+### Spacing System
+```typescript
+// Consistent spacing system
+export const spacing = {
+  // Base spacing unit (4px)
+  px: 1,
+  0: 0,
+  1: 4,
+  2: 8,
+  3: 12,
+  4: 16,
+  5: 20,
+  6: 24,
+  8: 32,
+  10: 40,
+  12: 48,
+  16: 64,
+  20: 80,
+  24: 96,
+  32: 128,
+} as const;
+
+// Touch target sizes
+export const touchTargets = {
+  minimum: 44, // iOS minimum
+  comfortable: 48, // Android minimum
+  large: 56, // For important actions
+} as const;
+```
+
+## Animation and Motion
+
+### Accessible Animations
+```typescript
+// Respect user's motion preferences
+export const useReducedMotion = () => {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    // Check for reduced motion preference
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setPrefersReducedMotion(e.matches);
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+};
+
+// Animated component that respects motion preferences
+export const AnimatedView: React.FC<AnimatedViewProps> = ({
+  children,
+  style,
+  animation,
+}) => {
+  const prefersReducedMotion = useReducedMotion();
+  
+  if (prefersReducedMotion) {
+    return <View style={style}>{children}</View>;
+  }
+
+  return (
+    <Animated.View style={[style, animation]}>
+      {children}
+    </Animated.View>
+  );
+};
+```
+
+### Focus Indicators
+```typescript
+// Custom focus indicators
+export const FocusableButton: React.FC<FocusableButtonProps> = ({
+  children,
+  onPress,
+  style,
+  ...props
+}) => {
+  const [isFocused, setIsFocused] = useState(false);
+
+  return (
+    <Pressable
+      style={[
+        styles.button,
+        isFocused && styles.buttonFocused,
+        style,
+      ]}
+      onPress={onPress}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
+      accessibilityRole="button"
+      {...props}
+    >
+      {children}
+      
+      {isFocused && (
+        <View
+          style={styles.focusIndicator}
+          accessibilityRole="img"
+          accessibilityLabel="Focused"
+        />
+      )}
+    </Pressable>
+  );
+};
+```
+
+## Error Handling and Feedback
+
+### Error States
+```typescript
+// Accessible error handling
+export const ErrorBoundary: React.FC<ErrorBoundaryProps> = ({
+  children,
+  fallback,
+}) => {
+  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const handleError = (error: Error) => {
+    setHasError(true);
+    setError(error);
+    
+    // Log error for debugging
+    console.error('Error caught by boundary:', error);
+  };
+
+  if (hasError) {
+    return fallback || (
+      <View
+        style={styles.errorContainer}
+        accessibilityRole="alert"
+        accessibilityLabel="Error occurred"
+      >
+        <Text style={styles.errorTitle}>
+          Something went wrong
+        </Text>
+        <Text style={styles.errorMessage}>
+          We're sorry, but something unexpected happened. Please try again.
+        </Text>
+        <Button
+          onPress={() => {
+            setHasError(false);
+            setError(null);
+          }}
+          accessibilityLabel="Try again"
+        >
+          Try Again
+        </Button>
+      </View>
+    );
+  }
+
+  return (
+    <ErrorBoundaryContext.Provider value={{ handleError }}>
+      {children}
+    </ErrorBoundaryContext.Provider>
+  );
+};
+```
+
+### Loading States
+```typescript
+// Accessible loading indicators
+export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
+  message = 'Loading...',
+  size = 'medium',
+}) => {
+  return (
+    <View
+      style={styles.loadingContainer}
+      accessibilityRole="progressbar"
+      accessibilityLabel={message}
+      accessibilityLiveRegion="polite"
+    >
+      <ActivityIndicator
+        size={size === 'small' ? 'small' : 'large'}
+        color="#007AFF"
+      />
+      <Text style={styles.loadingText}>{message}</Text>
+    </View>
+  );
+};
+```
+
+## Testing Accessibility
+
+### Automated Testing
+```typescript
+// Accessibility testing utilities
+export const accessibilityTestUtils = {
+  // Check if element is accessible
+  isAccessible: (element: any) => {
+    return element.props.accessibilityRole !== undefined;
+  },
+  
+  // Check if element has proper labeling
+  hasLabel: (element: any) => {
+    return element.props.accessibilityLabel || element.props.accessibilityLabel;
+  },
+  
+  // Check contrast ratio
+  checkContrast: (foreground: string, background: string) => {
+    // Implementation would use a contrast checking library
+    return true; // Placeholder
+  },
+};
+
+// Jest tests for accessibility
+describe('Accessibility Tests', () => {
+  it('should have proper accessibility attributes', () => {
+    const { getByRole } = render(<Button>Click me</Button>);
+    const button = getByRole('button');
+    
+    expect(button).toHaveAccessibilityRole('button');
+    expect(button).toHaveAccessibilityLabel('Click me');
+  });
+  
+  it('should support keyboard navigation', () => {
+    const { getByRole } = render(<Form />);
+    const inputs = getByRole('textbox');
+    
+    // Test tab order
+    fireEvent.keyDown(inputs[0], { key: 'Tab' });
+    expect(document.activeElement).toBe(inputs[1]);
+  });
+});
+```
+
+### Manual Testing Checklist
+```markdown
+## Accessibility Testing Checklist
+
+### Keyboard Navigation
+- [ ] All interactive elements are reachable via keyboard
+- [ ] Tab order is logical and intuitive
+- [ ] Focus indicators are clearly visible
+- [ ] No keyboard traps exist
+
+### Screen Reader Testing
+- [ ] All content is announced correctly
+- [ ] Form labels are properly associated
+- [ ] Error messages are announced
+- [ ] Dynamic content changes are announced
+
+### Visual Testing
+- [ ] Color contrast meets WCAG AA standards
+- [ ] Text is readable at 200% zoom
+- [ ] Content works in high contrast mode
+- [ ] Focus indicators are visible
+
+### Motor Accessibility
+- [ ] Touch targets are at least 44x44 points
+- [ ] Adequate spacing between interactive elements
+- [ ] Gestures are not required for basic functionality
+- [ ] Time limits can be extended or disabled
+```
+
+## Recovery-Specific Considerations
+
+### Sensitive Content
+```typescript
+// Handle sensitive recovery content with care
+export const SensitiveContent: React.FC<SensitiveContentProps> = ({
+  content,
+  isShared,
+  onToggleSharing,
+}) => {
+  return (
+    <View style={styles.sensitiveContent}>
+      <Text style={styles.content}>{content}</Text>
+      
+      {isShared && (
+        <View
+          style={styles.sharingIndicator}
+          accessibilityRole="img"
+          accessibilityLabel="This content is shared with your sponsor"
+        >
+          <Ionicons name="eye" size={16} color="#007AFF" />
+          <Text style={styles.sharingText}>Shared</Text>
+        </View>
+      )}
+      
+      <Button
+        onPress={onToggleSharing}
+        accessibilityLabel={
+          isShared 
+            ? 'Stop sharing this content with sponsor'
+            : 'Share this content with sponsor'
+        }
+      >
+        {isShared ? 'Stop Sharing' : 'Share with Sponsor'}
+      </Button>
+    </View>
+  );
+};
+```
+
+### Crisis Support
+```typescript
+// Accessible crisis support interface
+export const CrisisSupport: React.FC = () => {
+  return (
+    <View
+      style={styles.crisisContainer}
+      accessibilityRole="region"
+      accessibilityLabel="Crisis support resources"
+    >
+      <Text style={styles.crisisTitle}>
+        Need immediate support?
+      </Text>
+      
+      <View style={styles.crisisActions}>
+        <Button
+          onPress={() => {/* Call sponsor */}}
+          style={styles.crisisButton}
+          accessibilityLabel="Call your sponsor"
+          accessibilityHint="Opens phone dialer with sponsor's number"
+        >
+          <Ionicons name="call" size={20} color="white" />
+          <Text style={styles.crisisButtonText}>Call Sponsor</Text>
+        </Button>
+        
+        <Button
+          onPress={() => {/* Open action plan */}}
+          style={styles.crisisButton}
+          accessibilityLabel="Open emergency action plan"
+          accessibilityHint="Opens your emergency action plan"
+        >
+          <Ionicons name="list" size={20} color="white" />
+          <Text style={styles.crisisButtonText}>Action Plan</Text>
+        </Button>
+      </View>
+      
+      <Text style={styles.crisisNote}>
+        If you're in immediate danger, call 911 or your local emergency number.
+      </Text>
+    </View>
+  );
+};
+```
+
+## Implementation Guidelines
+
+### Component Development
+1. **Start with accessibility**: Build accessibility into components from the start
+2. **Test with real users**: Include users with disabilities in testing
+3. **Use semantic HTML**: Choose appropriate HTML elements and ARIA roles
+4. **Provide alternatives**: Always provide text alternatives for images and icons
+5. **Test keyboard navigation**: Ensure all functionality is keyboard accessible
+
+### Design Process
+1. **Include accessibility in design**: Consider accessibility during design phase
+2. **Use accessible color palettes**: Ensure sufficient contrast ratios
+3. **Design for different abilities**: Consider various user needs and preferences
+4. **Test with assistive technologies**: Use screen readers and other tools
+5. **Iterate based on feedback**: Continuously improve based on user feedback
+
+### Quality Assurance
+1. **Automated testing**: Use accessibility testing tools in CI/CD
+2. **Manual testing**: Regular manual accessibility testing
+3. **User testing**: Include users with disabilities in testing
+4. **Documentation**: Document accessibility features and requirements
+5. **Training**: Train team members on accessibility best practices

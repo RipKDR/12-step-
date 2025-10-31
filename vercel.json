@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/routine-nudges",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-checkin",
+      "schedule": "0 9 * * 1"
+    }
+  ],
+  "functions": {
+    "apps/web/src/app/api/cron/routine-nudges/route.ts": {
+      "maxDuration": 30
+    },
+    "apps/web/src/app/api/cron/weekly-checkin/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

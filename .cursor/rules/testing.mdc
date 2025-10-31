@@ -1,0 +1,648 @@
+---
+description: Testing guidelines and best practices for the recovery companion
+---
+
+# Testing Guidelines
+
+## Testing Strategy
+
+### Testing Pyramid
+- **Unit Tests**: Individual components and functions
+- **Integration Tests**: Component interactions and API calls
+- **E2E Tests**: Complete user workflows
+- **Accessibility Tests**: WCAG compliance and screen reader support
+
+### Test Coverage Goals
+- **Unit Tests**: 80%+ coverage for business logic
+- **Integration Tests**: Critical user flows
+- **E2E Tests**: Core recovery workflows
+- **Accessibility Tests**: All user-facing components
+
+## Unit Testing
+
+### React Component Testing
+```typescript
+// components/__tests__/DailyEntryForm.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { DailyEntryForm } from '../DailyEntryForm';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+    mutations: { retry: false },
+  },
+});
+
+const renderWithQueryClient = (component: React.ReactElement) => {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {component}
+    </QueryClientProvider>
+  );
+};
+
+describe('DailyEntryForm', () => {
+  test('renders form fields correctly', () => {
+    renderWithQueryClient(<DailyEntryForm />);
+    
+    expect(screen.getByLabelText(/craving intensity/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/feelings/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/gratitude/i)).toBeInTheDocument();
+  });
+
+  test('validates required fields', async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(<DailyEntryForm />);
+    
+    const submitButton = screen.getByRole('button', { name: /save entry/i });
+    await user.click(submitButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/craving intensity is required/i)).toBeInTheDocument();
+    });
+  });
+
+  test('submits form with valid data', async () => {
+    const mockOnSubmit = jest.fn();
+    const user = userEvent.setup();
+    
+    renderWithQueryClient(<DailyEntryForm onSubmit={mockOnSubmit} />);
+    
+    // Fill out form
+    const cravingsSlider = screen.getByLabelText(/craving intensity/i);
+    await user.type(cravingsSlider, '5');
+    
+    const gratitudeField = screen.getByLabelText(/gratitude/i);
+    await user.type(gratitudeField, 'I am grateful for my recovery');
+    
+    const submitButton = screen.getByRole('button', { name: /save entry/i });
+    await user.click(submitButton);
+    
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith({
+        cravings_intensity: 5,
+        gratitude: 'I am grateful for my recovery',
+      });
+    });
+  });
+});
+```
+
+### Hook Testing
+```typescript
+// hooks/__tests__/useDailyEntries.test.tsx
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useDailyEntries } from '../useDailyEntries';
+import { trpc } from '@/lib/trpc/client';
+
+// Mock tRPC
+jest.mock('@/lib/trpc/client', () => ({
+  trpc: {
+    dailyEntries: {
+      getAll: {
+        useQuery: jest.fn(),
+      },
+    },
+  },
+}));
+
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+};
+
+describe('useDailyEntries', () => {
+  test('returns daily entries data', async () => {
+    const mockData = [
+      { id: '1', entry_date: '2024-01-01', cravings_intensity: 3 },
+      { id: '2', entry_date: '2024-01-02', cravings_intensity: 5 },
+    ];
+    
+    (trpc.dailyEntries.getAll.useQuery as jest.Mock).mockReturnValue({
+      data: mockData,
+      isLoading: false,
+      error: null,
+    });
+    
+    const { result } = renderHook(() => useDailyEntries('user-1'), {
+      wrapper: createWrapper(),
+    });
+    
+    expect(result.current.data).toEqual(mockData);
+    expect(result.current.isLoading).toBe(false);
+  });
+});
+```
+
+### Utility Function Testing
+```typescript
+// utils/__tests__/dateUtils.test.ts
+import { formatDate, getDaysSince, isToday } from '../dateUtils';
+
+describe('dateUtils', () => {
+  test('formats date correctly', () => {
+    const date = new Date('2024-01-15');
+    expect(formatDate(date)).toBe('Jan 15, 2024');
+  });
+
+  test('calculates days since correctly', () => {
+    const startDate = new Date('2024-01-01');
+    const endDate = new Date('2024-01-15');
+    expect(getDaysSince(startDate, endDate)).toBe(14);
+  });
+
+  test('identifies today correctly', () => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    expect(isToday(today)).toBe(true);
+    expect(isToday(yesterday)).toBe(false);
+  });
+});
+```
+
+## Integration Testing
+
+### API Integration Tests
+```typescript
+// __tests__/integration/dailyEntries.test.ts
+import { createTRPCMsw } from 'msw-trpc';
+import { setupServer } from 'msw/node';
+import { appRouter } from '@/lib/trpc/root';
+import { createTRPCContext } from '@/lib/trpc/context';
+
+const trpcMsw = createTRPCMsw(appRouter);
+
+const server = setupServer(
+  trpcMsw.dailyEntries.create.mutation((req, res, ctx) => {
+    return res(
+      ctx.status(200),
+      ctx.data({
+        id: 'new-entry-id',
+        user_id: 'user-1',
+        entry_date: '2024-01-15',
+        cravings_intensity: 5,
+        created_at: new Date().toISOString(),
+      })
+    );
+  })
+);
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+describe('Daily Entries API Integration', () => {
+  test('creates daily entry successfully', async () => {
+    const input = {
+      user_id: 'user-1',
+      entry_date: '2024-01-15',
+      cravings_intensity: 5,
+      feelings: ['anxious', 'hopeful'],
+    };
+
+    const response = await fetch('/api/trpc/dailyEntries.create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input }),
+    });
+
+    const data = await response.json();
+    expect(data.result.data.id).toBe('new-entry-id');
+    expect(data.result.data.cravings_intensity).toBe(5);
+  });
+});
+```
+
+### Component Integration Tests
+```typescript
+// __tests__/integration/StepWorkFlow.test.tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { StepWorkFlow } from '@/components/StepWorkFlow';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const mockStep = {
+  id: 'step-1',
+  program: 'NA' as const,
+  step_number: 1,
+  title: 'Step 1: We admitted we were powerless',
+  prompts: [
+    {
+      id: 'powerless',
+      text: 'In what ways have you felt powerless?',
+      hint: 'Consider specific situations',
+    },
+  ],
+};
+
+describe('Step Work Flow Integration', () => {
+  test('completes step work flow', async () => {
+    const user = userEvent.setup();
+    const mockOnComplete = jest.fn();
+    
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <StepWorkFlow step={mockStep} onComplete={mockOnComplete} />
+      </QueryClientProvider>
+    );
+
+    // Fill out step work
+    const textarea = screen.getByLabelText(/in what ways have you felt powerless/i);
+    await user.type(textarea, 'I felt powerless when I tried to control my drinking');
+
+    // Save entry
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockOnComplete).toHaveBeenCalledWith({
+        step_id: 'step-1',
+        content: {
+          powerless: 'I felt powerless when I tried to control my drinking',
+        },
+      });
+    });
+  });
+});
+```
+
+## End-to-End Testing
+
+### Mobile E2E Tests (Detox)
+```typescript
+// e2e/dailyEntry.e2e.ts
+import { device, expect, element, by } from 'detox';
+
+describe('Daily Entry Flow', () => {
+  beforeAll(async () => {
+    await device.launchApp();
+  });
+
+  beforeEach(async () => {
+    await device.reloadReactNative();
+  });
+
+  it('should log daily entry', async () => {
+    // Navigate to daily tab
+    await element(by.id('daily-tab')).tap();
+    
+    // Set craving intensity
+    await element(by.id('cravings-slider')).swipe('right', 'fast', 0.5);
+    
+    // Add feelings
+    await element(by.id('feeling-anxious')).tap();
+    await element(by.id('feeling-hopeful')).tap();
+    
+    // Add gratitude
+    await element(by.id('gratitude-input')).typeText('I am grateful for my recovery');
+    
+    // Save entry
+    await element(by.id('save-entry-button')).tap();
+    
+    // Verify success message
+    await expect(element(by.text('Entry saved successfully'))).toBeVisible();
+  });
+
+  it('should show step work progress', async () => {
+    // Navigate to step work
+    await element(by.id('step-work-tab')).tap();
+    
+    // Verify step 1 is available
+    await expect(element(by.text('Step 1: We admitted we were powerless'))).toBeVisible();
+    
+    // Start step work
+    await element(by.id('step-1-card')).tap();
+    
+    // Verify step work form
+    await expect(element(by.id('step-work-form'))).toBeVisible();
+  });
+});
+```
+
+### Web E2E Tests (Playwright)
+```typescript
+// e2e/sponsor-portal.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Sponsor Portal', () => {
+  test.beforeEach(async ({ page }) => {
+    // Login as sponsor
+    await page.goto('/auth/login');
+    await page.fill('[data-testid="email"]', 'sponsor@example.com');
+    await page.fill('[data-testid="password"]', 'password123');
+    await page.click('[data-testid="login-button"]');
+    
+    // Wait for dashboard
+    await page.waitForURL('/dashboard');
+  });
+
+  test('should display sponsee list', async ({ page }) => {
+    await expect(page.locator('[data-testid="sponsee-list"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sponsee-card"]')).toHaveCount(2);
+  });
+
+  test('should view shared content', async ({ page }) => {
+    // Click on sponsee
+    await page.click('[data-testid="sponsee-card"]:first-child');
+    
+    // Navigate to shared content
+    await page.click('[data-testid="shared-content-tab"]');
+    
+    // Verify shared daily entries
+    await expect(page.locator('[data-testid="daily-entries-list"]')).toBeVisible();
+    await expect(page.locator('[data-testid="daily-entry-card"]')).toHaveCount.greaterThan(0);
+  });
+
+  test('should send message to sponsee', async ({ page }) => {
+    // Navigate to messaging
+    await page.click('[data-testid="messaging-tab"]');
+    
+    // Select sponsee
+    await page.click('[data-testid="sponsee-selector"]');
+    await page.click('[data-testid="sponsee-option"]:first-child');
+    
+    // Send message
+    await page.fill('[data-testid="message-input"]', 'How are you doing today?');
+    await page.click('[data-testid="send-message-button"]');
+    
+    // Verify message sent
+    await expect(page.locator('[data-testid="message-sent"]')).toBeVisible();
+  });
+});
+```
+
+## Accessibility Testing
+
+### Automated Accessibility Tests
+```typescript
+// __tests__/accessibility/accessibility.test.tsx
+import { render } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
+import { DailyEntryForm } from '@/components/DailyEntryForm';
+import { StepWork } from '@/components/StepWork';
+
+expect.extend(toHaveNoViolations);
+
+describe('Accessibility Tests', () => {
+  test('DailyEntryForm should not have accessibility violations', async () => {
+    const { container } = render(<DailyEntryForm />);
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+
+  test('StepWork should not have accessibility violations', async () => {
+    const mockStep = {
+      id: 'step-1',
+      program: 'NA' as const,
+      step_number: 1,
+      title: 'Step 1',
+      prompts: [
+        {
+          id: 'prompt-1',
+          text: 'Test prompt',
+          hint: 'Test hint',
+        },
+      ],
+    };
+
+    const { container } = render(<StepWork step={mockStep} />);
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+});
+```
+
+### Screen Reader Testing
+```typescript
+// __tests__/accessibility/screenReader.test.tsx
+import { render, screen } from '@testing-library/react';
+import { DailyEntryForm } from '@/components/DailyEntryForm';
+
+describe('Screen Reader Support', () => {
+  test('form has proper labels and descriptions', () => {
+    render(<DailyEntryForm />);
+    
+    // Check for proper labels
+    expect(screen.getByLabelText(/craving intensity/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/feelings/i)).toBeInTheDocument();
+    
+    // Check for descriptions
+    expect(screen.getByText(/rate your current craving intensity/i)).toBeInTheDocument();
+  });
+
+  test('error messages are announced', async () => {
+    render(<DailyEntryForm />);
+    
+    // Trigger validation error
+    const submitButton = screen.getByRole('button', { name: /save/i });
+    fireEvent.click(submitButton);
+    
+    // Check error message is announced
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+## Performance Testing
+
+### Component Performance Tests
+```typescript
+// __tests__/performance/componentPerformance.test.tsx
+import { render } from '@testing-library/react';
+import { DailyEntriesList } from '@/components/DailyEntriesList';
+
+describe('Component Performance', () => {
+  test('renders large list efficiently', () => {
+    const largeDataset = Array.from({ length: 1000 }, (_, i) => ({
+      id: `entry-${i}`,
+      entry_date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+      cravings_intensity: Math.floor(Math.random() * 11),
+    }));
+
+    const startTime = performance.now();
+    render(<DailyEntriesList entries={largeDataset} />);
+    const endTime = performance.now();
+
+    // Should render in less than 100ms
+    expect(endTime - startTime).toBeLessThan(100);
+  });
+});
+```
+
+### Bundle Size Testing
+```typescript
+// __tests__/performance/bundleSize.test.ts
+import { getBundleSize } from '../utils/bundleAnalyzer';
+
+describe('Bundle Size', () => {
+  test('main bundle should be under 500KB', () => {
+    const bundleSize = getBundleSize('main');
+    expect(bundleSize).toBeLessThan(500 * 1024); // 500KB
+  });
+
+  test('vendor bundle should be under 1MB', () => {
+    const bundleSize = getBundleSize('vendor');
+    expect(bundleSize).toBeLessThan(1024 * 1024); // 1MB
+  });
+});
+```
+
+## Test Utilities
+
+### Custom Render Function
+```typescript
+// test-utils/render.tsx
+import { render, RenderOptions } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactElement } from 'react';
+
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+    mutations: { retry: false },
+  },
+});
+
+interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
+  queryClient?: QueryClient;
+}
+
+export const renderWithProviders = (
+  ui: ReactElement,
+  { queryClient = createTestQueryClient(), ...renderOptions }: CustomRenderOptions = {}
+) => {
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+
+  return render(ui, { wrapper: Wrapper, ...renderOptions });
+};
+```
+
+### Mock Data Factories
+```typescript
+// test-utils/factories.ts
+import { faker } from '@faker-js/faker';
+import { DailyEntry, Step, StepEntry } from '@repo/types';
+
+export const createMockDailyEntry = (overrides: Partial<DailyEntry> = {}): DailyEntry => ({
+  id: faker.string.uuid(),
+  user_id: faker.string.uuid(),
+  entry_date: faker.date.recent().toISOString().split('T')[0],
+  cravings_intensity: faker.number.int({ min: 0, max: 10 }),
+  feelings: faker.helpers.arrayElements(['anxious', 'hopeful', 'grateful', 'frustrated']),
+  triggers: [],
+  coping_actions: [],
+  gratitude: faker.lorem.sentence(),
+  commitments: [],
+  notes: faker.lorem.paragraph(),
+  share_with_sponsor: false,
+  created_at: faker.date.past().toISOString(),
+  updated_at: faker.date.recent().toISOString(),
+  ...overrides,
+});
+
+export const createMockStep = (overrides: Partial<Step> = {}): Step => ({
+  id: faker.string.uuid(),
+  program: faker.helpers.arrayElement(['NA', 'AA']),
+  step_number: faker.number.int({ min: 1, max: 12 }),
+  title: faker.lorem.sentence(),
+  prompts: [
+    {
+      id: faker.string.uuid(),
+      text: faker.lorem.sentence(),
+      hint: faker.lorem.sentence(),
+    },
+  ],
+  created_at: faker.date.past().toISOString(),
+  ...overrides,
+});
+```
+
+## Continuous Integration
+
+### GitHub Actions Workflow
+```yaml
+# .github/workflows/test.yml
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run unit tests
+        run: npm run test:unit
+      
+      - name: Run integration tests
+        run: npm run test:integration
+      
+      - name: Run accessibility tests
+        run: npm run test:accessibility
+      
+      - name: Run E2E tests
+        run: npm run test:e2e
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+```
+
+## Test Maintenance
+
+### Test Organization
+- **Group by feature**: Organize tests by feature area
+- **Use descriptive names**: Test names should describe what they're testing
+- **Keep tests focused**: One concept per test
+- **Avoid test duplication**: Use shared utilities and factories
+
+### Test Data Management
+- **Use factories**: Create test data with factories
+- **Clean up after tests**: Reset state between tests
+- **Mock external dependencies**: Don't rely on external services
+- **Use realistic data**: Test with data that reflects real usage
+
+### Debugging Tests
+- **Use debug tools**: Leverage testing library debug utilities
+- **Add logging**: Use console.log for debugging complex tests
+- **Isolate failures**: Run individual tests to identify issues
+- **Check test environment**: Ensure test environment matches production

@@ -1,0 +1,729 @@
+# Database & Supabase Guidelines
+
+## Database Architecture
+
+### Core Principles
+- **Privacy-first design**: Row Level Security (RLS) on all tables
+- **User-controlled sharing**: Granular control over data sharing
+- **Audit logging**: Track all data access and modifications
+- **Data integrity**: Foreign key constraints and data validation
+- **Performance**: Proper indexing and query optimization
+- **Scalability**: Design for growth and high availability
+
+### Database Schema Overview
+```sql
+-- Core user and profile management
+profiles (user_id, handle, timezone, avatar_url, program, created_at, updated_at)
+
+-- Step work system
+steps (id, program, step_number, title, prompts, created_at)
+step_entries (id, user_id, step_id, version, content, is_shared_with_sponsor, created_at, updated_at)
+
+-- Daily recovery tracking
+daily_entries (id, user_id, entry_date, cravings_intensity, feelings, triggers, coping_actions, gratitude, notes, share_with_sponsor, created_at, updated_at)
+craving_events (id, user_id, occurred_at, intensity, trigger_type, lat, lng, notes, response_taken, created_at)
+
+-- Action plans and routines
+action_plans (id, user_id, title, situation, if_then, checklist, emergency_contacts, is_shared_with_sponsor, created_at, updated_at)
+routines (id, user_id, title, schedule, active, created_at, updated_at)
+routine_logs (id, routine_id, user_id, run_at, status, note, created_at)
+
+-- Sobriety tracking
+sobriety_streaks (id, user_id, start_date, end_date, relapse_note, created_at)
+
+-- Sponsor relationships
+sponsor_relationships (id, sponsor_id, sponsee_id, status, code, created_at, updated_at)
+
+-- Geofencing and triggers
+trigger_locations (id, user_id, label, lat, lng, radius_m, on_enter, on_exit, active, created_at, updated_at)
+
+-- Messaging system
+messages (id, thread_id, sender_id, recipient_id, content_ciphertext, nonce, created_at)
+
+-- System tables
+notification_tokens (id, user_id, token, platform, created_at)
+risk_signals (id, user_id, scored_at, score, inputs, created_at)
+audit_log (id, user_id, action, meta, created_at)
+```
+
+## Row Level Security (RLS) Policies
+
+### User Data Access
+```sql
+-- Users can only access their own data
+CREATE POLICY "Users can access own data" ON daily_entries
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own step entries" ON step_entries
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own action plans" ON action_plans
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own routines" ON routines
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own trigger locations" ON trigger_locations
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own craving events" ON craving_events
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own sobriety streaks" ON sobriety_streaks
+  FOR ALL USING (auth.uid() = user_id);
+```
+
+### Sponsor Access Policies
+```sql
+-- Sponsors can only access explicitly shared content
+CREATE POLICY "Sponsors can access shared daily entries" ON daily_entries
+  FOR SELECT USING (
+    is_shared_with_sponsor = true AND
+    EXISTS (
+      SELECT 1 FROM sponsor_relationships sr
+      WHERE sr.sponsor_id = auth.uid()
+      AND sr.sponsee_id = user_id
+      AND sr.status = 'active'
+    )
+  );
+
+CREATE POLICY "Sponsors can access shared step entries" ON step_entries
+  FOR SELECT USING (
+    is_shared_with_sponsor = true AND
+    EXISTS (
+      SELECT 1 FROM sponsor_relationships sr
+      WHERE sr.sponsor_id = auth.uid()
+      AND sr.sponsee_id = user_id
+      AND sr.status = 'active'
+    )
+  );
+
+CREATE POLICY "Sponsors can access shared action plans" ON action_plans
+  FOR SELECT USING (
+    is_shared_with_sponsor = true AND
+    EXISTS (
+      SELECT 1 FROM sponsor_relationships sr
+    WHERE sr.sponsor_id = auth.uid()
+      AND sr.sponsee_id = user_id
+      AND sr.status = 'active'
+  )
+);
+```
+
+### Sponsor Relationship Policies
+```sql
+-- Users can manage their own sponsor relationships
+CREATE POLICY "Users can manage own sponsor relationships" ON sponsor_relationships
+  FOR ALL USING (
+    auth.uid() = sponsor_id OR auth.uid() = sponsee_id
+  );
+
+-- Users can view their sponsor relationships
+CREATE POLICY "Users can view sponsor relationships" ON sponsor_relationships
+  FOR SELECT USING (
+    auth.uid() = sponsor_id OR auth.uid() = sponsee_id
+  );
+```
+
+### Messaging Policies
+```sql
+-- Users can only access messages in threads they participate in
+CREATE POLICY "Users can access own messages" ON messages
+  FOR ALL USING (
+    auth.uid() = sender_id OR auth.uid() = recipient_id
+  );
+```
+
+### System Data Policies
+```sql
+-- Users can only access their own notification tokens
+CREATE POLICY "Users can access own notification tokens" ON notification_tokens
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Users can only access their own risk signals
+CREATE POLICY "Users can access own risk signals" ON risk_signals
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Users can only access their own audit logs
+CREATE POLICY "Users can access own audit logs" ON audit_log
+  FOR ALL USING (auth.uid() = user_id);
+```
+
+## Database Functions and Procedures
+
+### User Management Functions
+```sql
+-- Create user profile on signup
+CREATE OR REPLACE FUNCTION create_user_profile()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profiles (user_id, handle, timezone, program, created_at, updated_at)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'handle', 'user_' || substr(NEW.id::text, 1, 8)),
+    COALESCE(NEW.raw_user_meta_data->>'timezone', 'UTC'),
+    COALESCE(NEW.raw_user_meta_data->>'program', 'NA'),
+    NOW(),
+    NOW()
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to create profile on user creation
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION create_user_profile();
+```
+
+### Sponsor Code Generation
+```sql
+-- Generate unique sponsor code
+CREATE OR REPLACE FUNCTION generate_sponsor_code()
+RETURNS TEXT AS $$
+DECLARE
+  code TEXT;
+  exists_count INTEGER;
+BEGIN
+  LOOP
+    -- Generate 8-character alphanumeric code
+    code := upper(substr(md5(random()::text), 1, 8));
+    
+    -- Check if code already exists
+    SELECT COUNT(*) INTO exists_count
+    FROM sponsor_relationships
+    WHERE code = generate_sponsor_code.code;
+    
+    -- Exit loop if code is unique
+    EXIT WHEN exists_count = 0;
+  END LOOP;
+  
+  RETURN code;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create sponsor relationship with generated code
+CREATE OR REPLACE FUNCTION create_sponsor_relationship(sponsee_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  sponsor_code TEXT;
+BEGIN
+  -- Generate unique code
+  sponsor_code := generate_sponsor_code();
+  
+  -- Create relationship
+  INSERT INTO sponsor_relationships (sponsor_id, sponsee_id, code, status, created_at, updated_at)
+  VALUES (auth.uid(), sponsee_id, sponsor_code, 'pending', NOW(), NOW());
+  
+  RETURN sponsor_code;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+### Data Sharing Functions
+```sql
+-- Toggle sharing for daily entry
+CREATE OR REPLACE FUNCTION toggle_daily_entry_sharing(entry_id UUID, share_with_sponsor BOOLEAN)
+RETURNS BOOLEAN AS $$
+BEGIN
+  UPDATE daily_entries
+  SET is_shared_with_sponsor = share_with_sponsor, updated_at = NOW()
+  WHERE id = entry_id AND user_id = auth.uid();
+  
+  RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Bulk toggle sharing for multiple entries
+CREATE OR REPLACE FUNCTION bulk_toggle_sharing(
+  entry_ids UUID[],
+  share_with_sponsor BOOLEAN,
+  entry_type TEXT
+)
+RETURNS INTEGER AS $$
+DECLARE
+  updated_count INTEGER := 0;
+  entry_id UUID;
+BEGIN
+  FOREACH entry_id IN ARRAY entry_ids
+  LOOP
+    IF entry_type = 'daily' THEN
+      UPDATE daily_entries
+      SET is_shared_with_sponsor = share_with_sponsor, updated_at = NOW()
+      WHERE id = entry_id AND user_id = auth.uid();
+    ELSIF entry_type = 'step' THEN
+      UPDATE step_entries
+      SET is_shared_with_sponsor = share_with_sponsor, updated_at = NOW()
+      WHERE id = entry_id AND user_id = auth.uid();
+    ELSIF entry_type = 'plan' THEN
+      UPDATE action_plans
+      SET is_shared_with_sponsor = share_with_sponsor, updated_at = NOW()
+      WHERE id = entry_id AND user_id = auth.uid();
+    END IF;
+    
+    IF FOUND THEN
+      updated_count := updated_count + 1;
+    END IF;
+  END LOOP;
+  
+  RETURN updated_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+### Analytics and Reporting Functions
+```sql
+-- Get weekly summary for user
+CREATE OR REPLACE FUNCTION get_weekly_summary(
+  user_id UUID,
+  week_start DATE,
+  week_end DATE
+)
+RETURNS JSON AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT json_build_object(
+    'week_start', week_start,
+    'week_end', week_end,
+    'total_entries', COUNT(*),
+    'avg_cravings', ROUND(AVG(cravings_intensity)::numeric, 1),
+    'top_feelings', (
+      SELECT json_agg(feeling ORDER BY count DESC)
+      FROM (
+        SELECT feeling, COUNT(*) as count
+        FROM daily_entries,
+        LATERAL unnest(feelings) as feeling
+        WHERE daily_entries.user_id = get_weekly_summary.user_id
+        AND entry_date BETWEEN week_start AND week_end
+        GROUP BY feeling
+        ORDER BY count DESC
+        LIMIT 5
+      ) t
+    ),
+    'top_triggers', (
+      SELECT json_agg(trigger_type ORDER BY count DESC)
+      FROM (
+        SELECT trigger_type, COUNT(*) as count
+        FROM daily_entries,
+        LATERAL unnest(triggers) as trigger_obj,
+        LATERAL jsonb_extract_path_text(trigger_obj, 'type') as trigger_type
+        WHERE daily_entries.user_id = get_weekly_summary.user_id
+        AND entry_date BETWEEN week_start AND week_end
+        GROUP BY trigger_type
+        ORDER BY count DESC
+        LIMIT 5
+      ) t
+    )
+  ) INTO result
+  FROM daily_entries
+  WHERE daily_entries.user_id = get_weekly_summary.user_id
+  AND entry_date BETWEEN week_start AND week_end;
+  
+  RETURN COALESCE(result, '{}'::json);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+## Database Indexes
+
+### Performance Indexes
+```sql
+-- User data indexes
+CREATE INDEX idx_daily_entries_user_date ON daily_entries(user_id, entry_date DESC);
+CREATE INDEX idx_daily_entries_shared ON daily_entries(user_id, is_shared_with_sponsor) WHERE is_shared_with_sponsor = true;
+CREATE INDEX idx_step_entries_user_step ON step_entries(user_id, step_id);
+CREATE INDEX idx_step_entries_shared ON step_entries(user_id, is_shared_with_sponsor) WHERE is_shared_with_sponsor = true;
+CREATE INDEX idx_action_plans_user ON action_plans(user_id);
+CREATE INDEX idx_action_plans_shared ON action_plans(user_id, is_shared_with_sponsor) WHERE is_shared_with_sponsor = true;
+
+-- Sponsor relationship indexes
+CREATE INDEX idx_sponsor_relationships_sponsor ON sponsor_relationships(sponsor_id, status);
+CREATE INDEX idx_sponsor_relationships_sponsee ON sponsor_relationships(sponsee_id, status);
+CREATE INDEX idx_sponsor_relationships_code ON sponsor_relationships(code) WHERE code IS NOT NULL;
+
+-- Craving events indexes
+CREATE INDEX idx_craving_events_user_date ON craving_events(user_id, occurred_at DESC);
+CREATE INDEX idx_craving_events_location ON craving_events(lat, lng) WHERE lat IS NOT NULL AND lng IS NOT NULL;
+
+-- Trigger locations indexes
+CREATE INDEX idx_trigger_locations_user ON trigger_locations(user_id, active);
+CREATE INDEX idx_trigger_locations_location ON trigger_locations(lat, lng) WHERE active = true;
+
+-- Routine logs indexes
+CREATE INDEX idx_routine_logs_user_date ON routine_logs(user_id, run_at DESC);
+CREATE INDEX idx_routine_logs_routine ON routine_logs(routine_id, run_at DESC);
+
+-- Messages indexes
+CREATE INDEX idx_messages_thread ON messages(thread_id, created_at DESC);
+CREATE INDEX idx_messages_sender ON messages(sender_id, created_at DESC);
+CREATE INDEX idx_messages_recipient ON messages(recipient_id, created_at DESC);
+
+-- Audit log indexes
+CREATE INDEX idx_audit_log_user_date ON audit_log(user_id, created_at DESC);
+CREATE INDEX idx_audit_log_action ON audit_log(action, created_at DESC);
+```
+
+## Data Validation and Constraints
+
+### Check Constraints
+```sql
+-- Cravings intensity must be between 0 and 10
+ALTER TABLE daily_entries ADD CONSTRAINT check_cravings_intensity 
+  CHECK (cravings_intensity >= 0 AND cravings_intensity <= 10);
+
+-- Sobriety streak dates must be valid
+ALTER TABLE sobriety_streaks ADD CONSTRAINT check_streak_dates 
+  CHECK (start_date <= COALESCE(end_date, CURRENT_DATE));
+
+-- Trigger location radius must be positive
+ALTER TABLE trigger_locations ADD CONSTRAINT check_radius_positive 
+  CHECK (radius_m > 0);
+
+-- Risk score must be between 0 and 100
+ALTER TABLE risk_signals ADD CONSTRAINT check_risk_score 
+  CHECK (score >= 0 AND score <= 100);
+```
+
+### Foreign Key Constraints
+```sql
+-- Ensure referential integrity
+ALTER TABLE step_entries ADD CONSTRAINT fk_step_entries_user 
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE step_entries ADD CONSTRAINT fk_step_entries_step 
+  FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE CASCADE;
+
+ALTER TABLE daily_entries ADD CONSTRAINT fk_daily_entries_user 
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE action_plans ADD CONSTRAINT fk_action_plans_user 
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE routines ADD CONSTRAINT fk_routines_user 
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE routine_logs ADD CONSTRAINT fk_routine_logs_routine 
+  FOREIGN KEY (routine_id) REFERENCES routines(id) ON DELETE CASCADE;
+
+ALTER TABLE routine_logs ADD CONSTRAINT fk_routine_logs_user 
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE sponsor_relationships ADD CONSTRAINT fk_sponsor_relationships_sponsor 
+  FOREIGN KEY (sponsor_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE sponsor_relationships ADD CONSTRAINT fk_sponsor_relationships_sponsee 
+  FOREIGN KEY (sponsee_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+```
+
+## Data Types and JSON Schemas
+
+### Custom Types
+```sql
+-- Program type
+CREATE TYPE program_type AS ENUM ('NA', 'AA');
+
+-- Sponsor relationship status
+CREATE TYPE sponsor_status AS ENUM ('pending', 'active', 'revoked');
+
+-- Routine status
+CREATE TYPE routine_status AS ENUM ('completed', 'skipped', 'failed');
+
+-- Notification platform
+CREATE TYPE notification_platform AS ENUM ('ios', 'android', 'web');
+```
+
+### JSON Schema Validation
+```sql
+-- Validate feelings array
+CREATE OR REPLACE FUNCTION validate_feelings(feelings JSONB)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN jsonb_typeof(feelings) = 'array' AND
+         jsonb_array_length(feelings) <= 20 AND
+         NOT EXISTS (
+           SELECT 1 FROM jsonb_array_elements_text(feelings) as feeling
+           WHERE length(feeling) > 50
+         );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Validate triggers array
+CREATE OR REPLACE FUNCTION validate_triggers(triggers JSONB)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN jsonb_typeof(triggers) = 'array' AND
+         jsonb_array_length(triggers) <= 10 AND
+         NOT EXISTS (
+           SELECT 1 FROM jsonb_array_elements(triggers) as trigger_obj
+           WHERE NOT (trigger_obj ? 'type' AND trigger_obj ? 'description') OR
+                 length(trigger_obj->>'type') > 50 OR
+                 length(trigger_obj->>'description') > 200
+         );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Add validation constraints
+ALTER TABLE daily_entries ADD CONSTRAINT check_feelings_valid 
+  CHECK (validate_feelings(feelings));
+
+ALTER TABLE daily_entries ADD CONSTRAINT check_triggers_valid 
+  CHECK (validate_triggers(triggers));
+```
+
+## Backup and Recovery
+
+### Backup Strategy
+```sql
+-- Create backup function
+CREATE OR REPLACE FUNCTION create_data_backup(backup_name TEXT)
+RETURNS TEXT AS $$
+DECLARE
+  backup_path TEXT;
+BEGIN
+  backup_path := '/backups/' || backup_name || '_' || to_char(NOW(), 'YYYYMMDD_HH24MISS') || '.sql';
+  
+  -- This would typically be handled by pg_dump in a real implementation
+  PERFORM pg_dump(
+    'host=localhost dbname=recovery_app user=backup_user',
+    backup_path
+  );
+  
+  RETURN backup_path;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+### Data Retention Policies
+```sql
+-- Clean up old audit logs (keep 1 year)
+CREATE OR REPLACE FUNCTION cleanup_old_audit_logs()
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  DELETE FROM audit_log
+  WHERE created_at < NOW() - INTERVAL '1 year';
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Clean up old notification tokens (keep 6 months)
+CREATE OR REPLACE FUNCTION cleanup_old_notification_tokens()
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  DELETE FROM notification_tokens
+  WHERE created_at < NOW() - INTERVAL '6 months';
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+## Monitoring and Performance
+
+### Query Performance Monitoring
+```sql
+-- Create view for slow queries
+CREATE VIEW slow_queries AS
+SELECT 
+  query,
+  calls,
+  total_time,
+  mean_time,
+  rows,
+  100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0) AS hit_percent
+FROM pg_stat_statements
+WHERE mean_time > 1000  -- Queries taking more than 1 second
+ORDER BY mean_time DESC;
+
+-- Create view for table sizes
+CREATE VIEW table_sizes AS
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size,
+  pg_total_relation_size(schemaname||'.'||tablename) as size_bytes
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY size_bytes DESC;
+```
+
+### Health Check Functions
+```sql
+-- Database health check
+CREATE OR REPLACE FUNCTION database_health_check()
+RETURNS JSON AS $$
+DECLARE
+  result JSON;
+  table_count INTEGER;
+  rls_enabled_count INTEGER;
+  index_count INTEGER;
+BEGIN
+  -- Count tables
+  SELECT COUNT(*) INTO table_count
+  FROM information_schema.tables
+  WHERE table_schema = 'public';
+  
+  -- Count tables with RLS enabled
+  SELECT COUNT(*) INTO rls_enabled_count
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+  AND c.relkind = 'r'
+  AND c.relrowsecurity = true;
+  
+  -- Count indexes
+  SELECT COUNT(*) INTO index_count
+  FROM pg_indexes
+  WHERE schemaname = 'public';
+  
+  result := json_build_object(
+    'timestamp', NOW(),
+    'total_tables', table_count,
+    'rls_enabled_tables', rls_enabled_count,
+    'total_indexes', index_count,
+    'rls_coverage', ROUND((rls_enabled_count::float / table_count) * 100, 2),
+    'status', CASE 
+      WHEN rls_enabled_count = table_count THEN 'healthy'
+      ELSE 'warning'
+    END
+  );
+  
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+## Supabase Configuration
+
+### Environment Variables
+```bash
+# Supabase configuration
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Database connection
+DATABASE_URL=postgresql://postgres:password@localhost:54322/postgres
+
+# Storage configuration
+SUPABASE_STORAGE_BUCKET=recovery-app-storage
+```
+
+### Supabase Client Setup
+```typescript
+// lib/supabase.ts
+import { createClient } from '@supabase/supabase-js';
+import { Database } from '@/types/supabase';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+  db: {
+    schema: 'public',
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'recovery-companion-web',
+    },
+  },
+});
+
+// Server-side client with service role key
+export const supabaseAdmin = createClient<Database>(
+  supabaseUrl,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+);
+```
+
+### Real-time Subscriptions
+```typescript
+// lib/realtime.ts
+import { supabase } from './supabase';
+
+export const subscribeToSponseeUpdates = (
+  sponseeId: string,
+  callback: (payload: any) => void
+) => {
+  return supabase
+    .channel(`sponsee-${sponseeId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'daily_entries',
+        filter: `user_id=eq.${sponseeId}`,
+      },
+      callback
+    )
+    .subscribe();
+};
+
+export const subscribeToMessages = (
+  threadId: string,
+  callback: (payload: any) => void
+) => {
+  return supabase
+    .channel(`messages-${threadId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `thread_id=eq.${threadId}`,
+      },
+      callback
+    )
+    .subscribe();
+};
+```
+
+## Best Practices
+
+### Security
+- **Always use RLS**: Enable RLS on every table
+- **Principle of least privilege**: Grant minimal necessary permissions
+- **Input validation**: Validate all inputs at the database level
+- **Audit logging**: Log all sensitive operations
+- **Regular security audits**: Review policies and permissions regularly
+
+### Performance
+- **Proper indexing**: Create indexes for common query patterns
+- **Query optimization**: Use EXPLAIN ANALYZE to optimize queries
+- **Connection pooling**: Use connection pooling for better performance
+- **Monitoring**: Monitor query performance and database health
+- **Backup strategy**: Implement regular backups and test recovery
+
+### Data Integrity
+- **Foreign key constraints**: Maintain referential integrity
+- **Check constraints**: Validate data at the database level
+- **Unique constraints**: Prevent duplicate data where appropriate
+- **Data validation**: Use JSON schema validation for complex data
+- **Cascade deletes**: Handle data cleanup properly
+
+### Privacy
+- **Data minimization**: Only store necessary data
+- **User control**: Allow users to control their data sharing
+- **Data retention**: Implement proper data retention policies
+- **Anonymization**: Anonymize data where possible
+- **Compliance**: Ensure compliance with privacy regulations

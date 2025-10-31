@@ -1,0 +1,167 @@
+---
+globs: *.ts,*.tsx
+description: TypeScript and code quality standards for the recovery companion
+---
+
+# TypeScript & Code Quality Standards
+
+## TypeScript Configuration
+- **Strict mode**: Always use strict TypeScript configuration
+- **No any types**: Avoid `any` - use proper typing or `unknown`
+- **Explicit returns**: Always specify return types for functions
+- **Null safety**: Use optional chaining and nullish coalescing
+
+## Code Organization
+
+### File Naming
+- **Components**: PascalCase (e.g., `StepWizard.tsx`)
+- **Hooks**: camelCase starting with 'use' (e.g., `useAuth.tsx`)
+- **Utilities**: camelCase (e.g., `supabase.ts`)
+- **Types**: camelCase with descriptive names (e.g., `DailyEntrySchema`)
+
+### Import/Export Patterns
+```typescript
+// Prefer named exports
+export const ProfileSchema = z.object({...});
+export type Profile = z.infer<typeof ProfileSchema>;
+
+// Use barrel exports in index files
+export * from './supabase';
+export * from './types';
+```
+
+### Type Definitions
+- **Database types**: Use generated Supabase types from [packages/types/src/supabase.ts](mdc:packages/types/src/supabase.ts)
+- **API types**: Define input/output types for tRPC procedures
+- **Component props**: Always define interfaces for component props
+- **Zod schemas**: Use for runtime validation and type inference
+
+## Error Handling
+
+### Try-Catch Patterns
+```typescript
+try {
+  const result = await supabase.from('profiles').select('*');
+  if (result.error) throw result.error;
+  return result.data;
+} catch (error) {
+  console.error('Failed to fetch profiles:', error);
+  throw new Error('Unable to load profile data');
+}
+```
+
+### Validation
+- **Input validation**: Use Zod schemas for all user inputs
+- **API responses**: Validate responses with Zod before using
+- **Form validation**: Use React Hook Form with Zod resolvers
+
+## React Patterns
+
+### Component Structure
+```typescript
+interface ComponentProps {
+  // Define all props with types
+}
+
+export const Component: React.FC<ComponentProps> = ({ prop1, prop2 }) => {
+  // Component logic
+  return <div>...</div>;
+};
+```
+
+### Hooks
+- **Custom hooks**: Start with 'use' prefix
+- **Return types**: Always define return type
+- **Dependencies**: Use proper dependency arrays in useEffect
+
+### State Management
+- **Local state**: Use useState for component state
+- **Server state**: Use TanStack Query for API data
+- **Global state**: Use React Context for auth/user data
+
+## Database Patterns
+
+### Supabase Client Usage
+```typescript
+// Use typed client
+const { data, error } = await supabase
+  .from('daily_entries')
+  .select('*')
+  .eq('user_id', userId);
+
+// Always check for errors
+if (error) {
+  throw new Error(`Database error: ${error.message}`);
+}
+```
+
+### RLS Compliance
+- **Never use service role key on client**
+- **Always filter by user_id in queries**
+- **Use auth.uid() in RLS policies**
+
+## Performance
+
+### Optimization
+- **Memoization**: Use useMemo and useCallback when appropriate
+- **Lazy loading**: Use dynamic imports for large components
+- **Bundle splitting**: Separate vendor and app code
+
+### Mobile Specific
+- **FlatList**: Use for large lists with proper keyExtractor
+- **Image optimization**: Use expo-image for better performance
+- **Background tasks**: Use TaskManager for geofencing
+
+## Testing
+
+### Unit Tests
+- **Test files**: Use `.test.ts` or `.spec.ts` suffix
+- **Test utilities**: Create reusable test helpers
+- **Mocking**: Mock external dependencies properly
+
+### Type Testing
+- **Type assertions**: Use `as const` for literal types
+- **Generic constraints**: Use proper generic constraints
+- **Utility types**: Leverage TypeScript utility types
+
+## Code Style
+
+### Formatting
+- **Prettier**: Use for consistent formatting
+- **ESLint**: Use for code quality rules
+- **Semicolons**: Always use semicolons
+- **Quotes**: Use single quotes for strings
+
+### Documentation
+- **JSDoc**: Document complex functions
+- **Comments**: Explain business logic, not obvious code
+- **README**: Keep documentation up to date
+
+## Common Patterns
+
+### API Calls
+```typescript
+const { data, isLoading, error } = useQuery({
+  queryKey: ['daily-entries', userId],
+  queryFn: () => fetchDailyEntries(userId),
+  enabled: !!userId,
+});
+```
+
+### Form Handling
+```typescript
+const form = useForm<DailyEntryForm>({
+  resolver: zodResolver(DailyEntrySchema),
+  defaultValues: {
+    cravings_intensity: 0,
+    feelings: [],
+  },
+});
+```
+
+### Error Boundaries
+```typescript
+<ErrorBoundary fallback={<ErrorFallback />}>
+  <Component />
+</ErrorBoundary>
+```

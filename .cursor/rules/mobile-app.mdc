@@ -1,0 +1,821 @@
+# Mobile App Development Guidelines
+
+## Expo React Native Architecture
+
+### Project Structure
+```
+apps/mobile/
+├── app/                    # Expo Router pages
+│   ├── (auth)/            # Authentication screens
+│   │   ├── _layout.tsx    # Auth layout wrapper
+│   │   ├── welcome.tsx    # Onboarding welcome
+│   │   └── profile-setup.tsx # Initial profile setup
+│   └── (tabs)/            # Main app tabs
+│       ├── _layout.tsx    # Tab navigation layout
+│       ├── home.tsx       # Dashboard/home screen
+│       ├── daily.tsx      # Daily logging
+│       ├── step-work.tsx  # Step work interface
+│       ├── plans.tsx      # Action plans & routines
+│       └── me.tsx         # Profile & settings
+├── components/            # React Native components
+│   ├── ui/               # Reusable UI components
+│   ├── forms/            # Form components
+│   └── charts/           # Data visualization
+├── hooks/                # Custom React hooks
+├── lib/                  # Utilities and configuration
+│   ├── db.ts            # SQLite database operations
+│   ├── supabase.ts      # Supabase client
+│   ├── sync.ts          # Offline sync logic
+│   └── trpc.ts          # tRPC client setup
+├── tasks/               # Background tasks
+│   └── geofencing.ts    # Location-based triggers
+└── types/               # TypeScript type definitions
+```
+
+### Core Technologies
+- **Expo SDK 50+**: Latest stable Expo SDK
+- **React Native 0.73+**: Latest React Native version
+- **TypeScript**: Strict TypeScript configuration
+- **Expo Router**: File-based navigation system
+- **React Hook Form + Zod**: Form handling and validation
+- **TanStack Query**: Server state management
+- **SQLite**: Local database for offline functionality
+- **expo-secure-store**: Secure storage for sensitive data
+
+## Offline-First Architecture
+
+### SQLite Local Database
+```typescript
+// lib/db.ts - SQLite setup
+import * as SQLite from 'expo-sqlite';
+
+const db = SQLite.openDatabase('recovery_app.db');
+
+export const initDatabase = async () => {
+  // Create tables for offline storage
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS daily_entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      cravings_intensity INTEGER,
+      feelings TEXT, -- JSON string
+      triggers TEXT, -- JSON string
+      coping_actions TEXT, -- JSON string
+      gratitude TEXT,
+      notes TEXT,
+      share_with_sponsor BOOLEAN DEFAULT FALSE,
+      created_at TEXT,
+      updated_at TEXT,
+      synced_at TEXT
+    );
+  `);
+};
+```
+
+### Sync Strategy
+```typescript
+// lib/sync.ts - Offline sync logic
+export const syncOfflineData = async () => {
+  const offlineEntries = await getOfflineEntries();
+  
+  for (const entry of offlineEntries) {
+    try {
+      await trpc.daily.upsert.mutate(entry);
+      await markAsSynced(entry.id);
+    } catch (error) {
+      console.error('Sync failed for entry:', entry.id, error);
+    }
+  }
+};
+
+export const getOfflineEntries = async () => {
+  const result = await db.getAllAsync(
+    'SELECT * FROM daily_entries WHERE synced_at IS NULL'
+  );
+  return result.map(parseDailyEntry);
+};
+```
+
+### Background Tasks
+```typescript
+// tasks/geofencing.ts - Background location monitoring
+import * as TaskManager from 'expo-task-manager';
+import * as Location from 'expo-location';
+
+const GEOFENCING_TASK = 'geofencing-task';
+
+TaskManager.defineTask(GEOFENCING_TASK, ({ data, error }) => {
+  if (error) {
+    console.error('Geofencing error:', error);
+    return;
+  }
+
+  if (data) {
+    const { eventType, region } = data;
+    handleGeofenceEvent(eventType, region);
+  }
+});
+
+const handleGeofenceEvent = async (eventType: string, region: any) => {
+  if (eventType === 'enter') {
+    await openActionPlan(region.identifier);
+    await notifySponsorIfEnabled(region.identifier);
+  }
+};
+```
+
+## Navigation & Routing
+
+### Expo Router Setup
+```typescript
+// app/_layout.tsx - Root layout
+import { Stack } from 'expo-router';
+import { AuthProvider } from '../context/AuthContext';
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+      </Stack>
+    </AuthProvider>
+  );
+}
+
+// app/(tabs)/_layout.tsx - Tab navigation
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function TabLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#007AFF',
+        tabBarStyle: { height: 60, paddingBottom: 8 },
+      }}
+    >
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color }) => <Ionicons name="home" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="daily"
+        options={{
+          title: 'Daily',
+          tabBarIcon: ({ color }) => <Ionicons name="calendar" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="step-work"
+        options={{
+          title: 'Steps',
+          tabBarIcon: ({ color }) => <Ionicons name="book" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="plans"
+        options={{
+          title: 'Plans',
+          tabBarIcon: ({ color }) => <Ionicons name="list" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="me"
+        options={{
+          title: 'Me',
+          tabBarIcon: ({ color }) => <Ionicons name="person" size={24} color={color} />,
+        }}
+      />
+    </Tabs>
+  );
+}
+```
+
+## State Management
+
+### TanStack Query Setup
+```typescript
+// lib/trpc.ts - tRPC client with React Query
+import { createTRPCReact } from '@trpc/react-query';
+import { httpBatchLink } from '@trpc/client';
+import { QueryClient } from '@tanstack/react-query';
+
+export const trpc = createTRPCReact<AppRouter>();
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      retry: (failureCount, error) => {
+        if (error.status === 401) return false;
+        return failureCount < 3;
+      },
+    },
+  },
+});
+
+export const trpcClient = trpc.createClient({
+  links: [
+    httpBatchLink({
+      url: process.env.EXPO_PUBLIC_API_URL + '/trpc',
+      headers: async () => {
+        const token = await getAuthToken();
+        return {
+          authorization: token ? `Bearer ${token}` : '',
+        };
+      },
+    }),
+  ],
+});
+```
+
+### Custom Hooks
+```typescript
+// hooks/useAuth.tsx - Authentication hook
+export const useAuth = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
+  };
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  };
+
+  return { user, loading, signIn, signOut };
+};
+
+// hooks/useOfflineSync.tsx - Offline sync hook
+export const useOfflineSync = () => {
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingSync, setPendingSync] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected ?? false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (isOnline && pendingSync > 0) {
+      syncOfflineData();
+    }
+  }, [isOnline, pendingSync]);
+
+  return { isOnline, pendingSync };
+};
+```
+
+## UI Components
+
+### Reusable Components
+```typescript
+// components/ui/Button.tsx
+interface ButtonProps {
+  title: string;
+  onPress: () => void;
+  variant?: 'primary' | 'secondary' | 'danger';
+  size?: 'small' | 'medium' | 'large';
+  disabled?: boolean;
+  loading?: boolean;
+}
+
+export const Button: React.FC<ButtonProps> = ({
+  title,
+  onPress,
+  variant = 'primary',
+  size = 'medium',
+  disabled = false,
+  loading = false,
+}) => {
+  const buttonStyle = [
+    styles.button,
+    styles[variant],
+    styles[size],
+    disabled && styles.disabled,
+  ];
+
+  return (
+    <Pressable style={buttonStyle} onPress={onPress} disabled={disabled}>
+      {loading ? (
+        <ActivityIndicator color="white" />
+      ) : (
+        <Text style={styles.buttonText}>{title}</Text>
+      )}
+    </Pressable>
+  );
+};
+
+// components/ui/Chip.tsx - For feelings, triggers, etc.
+interface ChipProps {
+  label: string;
+  selected?: boolean;
+  onPress?: () => void;
+  removable?: boolean;
+  onRemove?: () => void;
+}
+
+export const Chip: React.FC<ChipProps> = ({
+  label,
+  selected = false,
+  onPress,
+  removable = false,
+  onRemove,
+}) => {
+  return (
+    <Pressable
+      style={[styles.chip, selected && styles.chipSelected]}
+      onPress={onPress}
+    >
+      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+        {label}
+      </Text>
+      {removable && (
+        <Pressable onPress={onRemove} style={styles.removeButton}>
+          <Ionicons name="close" size={16} color="#666" />
+        </Pressable>
+      )}
+    </Pressable>
+  );
+};
+```
+
+### Form Components
+```typescript
+// components/forms/DailyEntryForm.tsx
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+const DailyEntrySchema = z.object({
+  cravings_intensity: z.number().min(0).max(10),
+  feelings: z.array(z.string()),
+  triggers: z.array(z.object({
+    type: z.string(),
+    description: z.string(),
+  })),
+  coping_actions: z.array(z.string()),
+  gratitude: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const DailyEntryForm: React.FC<DailyEntryFormProps> = ({
+  initialData,
+  onSubmit,
+}) => {
+  const form = useForm<DailyEntryFormData>({
+    resolver: zodResolver(DailyEntrySchema),
+    defaultValues: initialData || {
+      cravings_intensity: 0,
+      feelings: [],
+      triggers: [],
+      coping_actions: [],
+      gratitude: '',
+      notes: '',
+    },
+  });
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>How are you feeling today?</Text>
+      
+      {/* Cravings Intensity Slider */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Cravings Intensity (0-10)</Text>
+        <Controller
+          control={form.control}
+          name="cravings_intensity"
+          render={({ field: { value, onChange } }) => (
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={10}
+              step={1}
+              value={value}
+              onValueChange={onChange}
+              minimumTrackTintColor="#007AFF"
+              maximumTrackTintColor="#E5E5EA"
+              thumbStyle={styles.thumb}
+            />
+          )}
+        />
+        <Text style={styles.valueText}>{form.watch('cravings_intensity')}</Text>
+      </View>
+
+      {/* Feelings Selection */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Feelings</Text>
+        <Controller
+          control={form.control}
+          name="feelings"
+          render={({ field: { value, onChange } }) => (
+            <FeelingsSelector
+              selected={value}
+              onSelectionChange={onChange}
+            />
+          )}
+        />
+      </View>
+
+      {/* Submit Button */}
+      <Button
+        title="Save Entry"
+        onPress={form.handleSubmit(onSubmit)}
+        loading={form.formState.isSubmitting}
+      />
+    </View>
+  );
+};
+```
+
+## Performance Optimization
+
+### List Performance
+```typescript
+// components/DailyEntriesList.tsx - Optimized list
+import { FlatList } from 'react-native';
+
+export const DailyEntriesList: React.FC<DailyEntriesListProps> = ({
+  entries,
+  onEntryPress,
+}) => {
+  const renderItem = useCallback(({ item }: { item: DailyEntry }) => (
+    <DailyEntryCard
+      entry={item}
+      onPress={() => onEntryPress(item)}
+    />
+  ), [onEntryPress]);
+
+  const keyExtractor = useCallback((item: DailyEntry) => item.id, []);
+
+  return (
+    <FlatList
+      data={entries}
+      renderItem={renderItem}
+      keyExtractor={keyExtractor}
+      removeClippedSubviews={true}
+      maxToRenderPerBatch={10}
+      windowSize={10}
+      initialNumToRender={20}
+      getItemLayout={(data, index) => ({
+        length: 80,
+        offset: 80 * index,
+        index,
+      })}
+    />
+  );
+};
+```
+
+### Image Optimization
+```typescript
+// Use expo-image for better performance
+import { Image } from 'expo-image';
+
+export const ProfileAvatar: React.FC<ProfileAvatarProps> = ({
+  uri,
+  size = 40,
+}) => {
+  return (
+    <Image
+      source={{ uri }}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+      placeholder="https://via.placeholder.com/40"
+      contentFit="cover"
+      transition={200}
+    />
+  );
+};
+```
+
+## Background Tasks & Notifications
+
+### Push Notifications
+```typescript
+// lib/notifications.ts
+import * as Notifications from 'expo-notifications';
+
+export const setupNotifications = async () => {
+  const { status } = await Notifications.requestPermissionsAsync();
+  if (status !== 'granted') {
+    console.warn('Notification permission not granted');
+    return;
+  }
+
+  // Configure notification behavior
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+};
+
+export const scheduleRoutineNotification = async (
+  routineId: string,
+  scheduledTime: Date,
+  title: string,
+  body: string
+) => {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title,
+      body,
+      data: { routineId },
+    },
+    trigger: {
+      date: scheduledTime,
+    },
+  });
+};
+```
+
+### Background Location
+```typescript
+// lib/location.ts
+import * as Location from 'expo-location';
+
+export const requestLocationPermission = async () => {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    throw new Error('Location permission not granted');
+  }
+
+  const backgroundStatus = await Location.requestBackgroundPermissionsAsync();
+  if (backgroundStatus.status !== 'granted') {
+    throw new Error('Background location permission not granted');
+  }
+};
+
+export const startLocationTracking = async () => {
+  await Location.startLocationUpdatesAsync(GEOFENCING_TASK, {
+    accuracy: Location.Accuracy.Balanced,
+    timeInterval: 5000,
+    distanceInterval: 10,
+    foregroundService: {
+      notificationTitle: 'Recovery App',
+      notificationBody: 'Monitoring location for triggers',
+    },
+  });
+};
+```
+
+## Testing
+
+### Component Testing
+```typescript
+// __tests__/components/DailyEntryForm.test.tsx
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { DailyEntryForm } from '../components/forms/DailyEntryForm';
+
+describe('DailyEntryForm', () => {
+  it('should submit form with valid data', async () => {
+    const mockOnSubmit = jest.fn();
+    const { getByText, getByTestId } = render(
+      <DailyEntryForm onSubmit={mockOnSubmit} />
+    );
+
+    // Test form submission
+    fireEvent.press(getByText('Save Entry'));
+    
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalled();
+    });
+  });
+});
+```
+
+### Hook Testing
+```typescript
+// __tests__/hooks/useAuth.test.tsx
+import { renderHook, act } from '@testing-library/react-native';
+import { useAuth } from '../hooks/useAuth';
+
+describe('useAuth', () => {
+  it('should handle sign in', async () => {
+    const { result } = renderHook(() => useAuth());
+
+    await act(async () => {
+      await result.current.signIn('test@example.com', 'password');
+    });
+
+    expect(result.current.user).toBeTruthy();
+  });
+});
+```
+
+## Accessibility
+
+### Screen Reader Support
+```typescript
+// components/accessible/Button.tsx
+export const AccessibleButton: React.FC<ButtonProps> = ({
+  title,
+  onPress,
+  accessibilityLabel,
+  accessibilityHint,
+  ...props
+}) => {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel || title}
+      accessibilityHint={accessibilityHint}
+      {...props}
+    >
+      <Text>{title}</Text>
+    </Pressable>
+  );
+};
+```
+
+### Focus Management
+```typescript
+// components/forms/AccessibleForm.tsx
+export const AccessibleForm: React.FC<AccessibleFormProps> = ({
+  children,
+  onSubmit,
+}) => {
+  const firstInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    // Focus first input when form loads
+    firstInputRef.current?.focus();
+  }, []);
+
+  return (
+    <View
+      accessible={true}
+      accessibilityRole="form"
+      accessibilityLabel="Daily entry form"
+    >
+      {children}
+    </View>
+  );
+};
+```
+
+## Error Handling
+
+### Error Boundaries
+```typescript
+// components/ErrorBoundary.tsx
+import React from 'react';
+import { View, Text, Button } from 'react-native';
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class ErrorBoundary extends React.Component<
+  React.PropsWithChildren<{}>,
+  ErrorBoundaryState
+> {
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+    // Send to Sentry
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Something went wrong</Text>
+          <Text style={styles.errorMessage}>
+            We're sorry, but something unexpected happened.
+          </Text>
+          <Button
+            title="Try Again"
+            onPress={() => this.setState({ hasError: false })}
+          />
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+## Build & Deployment
+
+### App Configuration
+```json
+// app.json
+{
+  "expo": {
+    "name": "Recovery Companion",
+    "slug": "recovery-companion",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-location",
+      "expo-notifications",
+      [
+        "expo-task-manager",
+        {
+          "backgroundModes": ["location"]
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.recoverycompanion.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app uses location to help you identify trigger locations and find nearby meetings.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to help you identify trigger locations and find nearby meetings."
+      }
+    },
+    "android": {
+      "package": "com.recoverycompanion.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    }
+  }
+}
+```
+
+### Build Scripts
+```json
+// package.json
+{
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build:android": "eas build --platform android",
+    "build:ios": "eas build --platform ios",
+    "submit:android": "eas submit --platform android",
+    "submit:ios": "eas submit --platform ios"
+  }
+}
+```
+
+## Best Practices
+
+### Code Organization
+- **Single responsibility**: Each component has one clear purpose
+- **Custom hooks**: Extract reusable logic into custom hooks
+- **Type safety**: Use TypeScript strictly, avoid `any` types
+- **Error handling**: Handle errors gracefully with user-friendly messages
+- **Performance**: Use React.memo, useMemo, useCallback appropriately
+
+### User Experience
+- **Offline-first**: App works without internet connection
+- **Loading states**: Show loading indicators for async operations
+- **Error states**: Provide clear error messages and recovery options
+- **Accessibility**: Support screen readers and keyboard navigation
+- **Responsive**: Work on different screen sizes and orientations
+
+### Security
+- **Secure storage**: Use expo-secure-store for sensitive data
+- **Input validation**: Validate all user inputs
+- **Network security**: Use HTTPS for all API calls
+- **Authentication**: Implement proper session management
+- **Data privacy**: Respect user privacy and data sharing preferences

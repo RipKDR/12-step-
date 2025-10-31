@@ -1,0 +1,210 @@
+# Privacy & Security Guidelines
+
+## Core Privacy Principles
+
+### Data Minimization
+- **Collect only what's necessary**: Only gather data essential for recovery support
+- **Purpose limitation**: Use data only for stated recovery purposes
+- **Retention limits**: Implement automatic data deletion after reasonable periods
+- **Anonymization**: Use anonymous analytics where possible (PostHog anonymous mode)
+
+### User Control
+- **Granular sharing**: Users control exactly what sponsors can see
+- **Revocable permissions**: Users can revoke sponsor access anytime
+- **Data export**: Complete data export in standard formats (JSON, CSV)
+- **Data deletion**: Right to be forgotten with complete data removal
+- **Transparency**: Clear privacy policy and data usage explanations
+
+## Security Architecture
+
+### Authentication & Authorization
+- **Supabase Auth**: Use Supabase's built-in authentication system
+- **JWT tokens**: Secure token-based authentication with proper expiration
+- **No service role on client**: Never expose service role key to client applications
+- **RLS enforcement**: Row Level Security on all database tables
+- **Session management**: Proper session handling with secure storage
+
+### Data Protection
+- **Encryption at rest**: Supabase handles database encryption
+- **Encryption in transit**: HTTPS/TLS for all communications
+- **Client-side encryption**: Optional libsodium encryption for sensitive messages
+- **Secure storage**: Use expo-secure-store for sensitive mobile data
+- **Key management**: Proper key rotation and secure key storage
+
+### API Security
+- **Input validation**: Zod schemas for all user inputs
+- **SQL injection prevention**: Use parameterized queries only
+- **Rate limiting**: Implement rate limiting on sensitive endpoints
+- **CORS configuration**: Proper CORS settings for web app
+- **Error handling**: Don't expose sensitive information in error messages
+
+## Privacy-First Features
+
+### Sponsor Relationships
+- **Code-based linking**: Use secure codes instead of email/phone
+- **Selective sharing**: Users choose exactly what to share
+- **Time-limited access**: Sponsor access expires with relationship
+- **Audit logging**: Track all sponsor access to shared content
+- **Revocation**: Immediate access revocation when relationship ends
+
+### Data Sharing Controls
+- **Per-item sharing**: Individual control over each entry/plan
+- **Share badges**: Clear visual indicators of shared content
+- **Bulk controls**: Easy bulk sharing/revocation options
+- **Share history**: Track what was shared and when
+- **Consent tracking**: Record user consent for data sharing
+
+### Geofencing Privacy
+- **Opt-in only**: Geofencing requires explicit user consent
+- **Local processing**: Process location data locally when possible
+- **Minimal storage**: Store only necessary location data
+- **Automatic deletion**: Delete old location data automatically
+- **Sponsor notifications**: Optional sponsor notifications for triggers
+
+## Compliance & Legal
+
+### Recovery Program Compliance
+- **Copyright respect**: Never include copyrighted NA/AA literature
+- **Neutral summaries**: Use paraphrased, neutral language only
+- **External links**: Link to official resources instead of copying
+- **Attribution**: Proper attribution for any referenced materials
+- **Trademark respect**: Avoid using protected trademarks
+
+### Data Protection Regulations
+- **GDPR compliance**: Right to access, rectification, erasure, portability
+- **CCPA compliance**: California Consumer Privacy Act requirements
+- **HIPAA awareness**: Understand healthcare data implications
+- **Local laws**: Comply with local privacy regulations
+- **Regular audits**: Periodic privacy and security audits
+
+## Technical Implementation
+
+### Database Security
+```sql
+-- Example RLS policy for user data
+CREATE POLICY "Users can only access their own data" ON daily_entries
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Sponsor access policy
+CREATE POLICY "Sponsors can access shared content" ON daily_entries
+  FOR SELECT USING (
+    is_shared_with_sponsor = true AND
+    EXISTS (
+      SELECT 1 FROM sponsor_relationships sr
+      WHERE sr.sponsor_id = auth.uid()
+      AND sr.sponsee_id = user_id
+      AND sr.status = 'active'
+    )
+  );
+```
+
+### Client-Side Security
+```typescript
+// Secure storage for sensitive data
+import * as SecureStore from 'expo-secure-store';
+
+const storeSecureData = async (key: string, value: string) => {
+  await SecureStore.setItemAsync(key, value, {
+    requireAuthentication: true,
+    authenticationPrompt: 'Authenticate to access recovery data',
+  });
+};
+
+// Input validation
+const validateUserInput = (input: unknown) => {
+  return UserInputSchema.parse(input);
+};
+```
+
+### API Security
+```typescript
+// Rate limiting middleware
+const rateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP',
+});
+
+// Input sanitization
+const sanitizeInput = (input: string) => {
+  return input.trim().replace(/[<>]/g, '');
+};
+```
+
+## Monitoring & Incident Response
+
+### Security Monitoring
+- **Sentry integration**: Error tracking and security monitoring
+- **Audit logging**: Log all sensitive operations
+- **Anomaly detection**: Monitor for unusual access patterns
+- **Failed login tracking**: Track and respond to failed authentication
+- **Data access logging**: Log all data access for compliance
+
+### Incident Response
+- **Security incident plan**: Documented response procedures
+- **Data breach notification**: Process for notifying users
+- **Recovery procedures**: Steps to restore service after incidents
+- **Communication plan**: How to communicate with users
+- **Legal compliance**: Ensure regulatory compliance during incidents
+
+## Best Practices
+
+### Development
+- **Security by design**: Build security into every feature
+- **Regular updates**: Keep dependencies and systems updated
+- **Code reviews**: Security-focused code review process
+- **Testing**: Security testing as part of development
+- **Documentation**: Document security decisions and procedures
+
+### User Education
+- **Privacy settings**: Clear explanations of privacy options
+- **Security tips**: Educate users about account security
+- **Data usage**: Transparent explanation of how data is used
+- **Rights explanation**: Clear explanation of user rights
+- **Support**: Easy access to privacy and security support
+
+## Recovery-Specific Considerations
+
+### Sensitive Data Handling
+- **Trigger locations**: Handle with extra care and user consent
+- **Craving data**: Sensitive information requiring protection
+- **Relapse information**: Highly sensitive data with strict access controls
+- **Sponsor communications**: Encrypted messaging for sensitive discussions
+- **Crisis data**: Emergency contact information with proper access controls
+
+### Anonymity Support
+- **Anonymous usage**: Allow anonymous usage where possible
+- **Pseudonymous accounts**: Support for pseudonymous user accounts
+- **Data aggregation**: Use aggregated data for insights
+- **No real names**: Avoid requiring real names in profiles
+- **Handle-based system**: Use handles instead of real names
+
+## Implementation Checklist
+
+### Privacy Controls
+- [ ] Granular sharing controls implemented
+- [ ] Data export functionality working
+- [ ] Data deletion functionality working
+- [ ] Privacy settings UI complete
+- [ ] Consent tracking implemented
+
+### Security Measures
+- [ ] RLS policies on all tables
+- [ ] Input validation on all endpoints
+- [ ] Secure storage for sensitive data
+- [ ] Rate limiting implemented
+- [ ] Audit logging active
+
+### Compliance
+- [ ] Privacy policy written and accessible
+- [ ] Terms of service include privacy clauses
+- [ ] Data processing agreements in place
+- [ ] Regular security audits scheduled
+- [ ] Incident response plan documented
+
+### Recovery-Specific
+- [ ] Copyright compliance verified
+- [ ] Anonymous usage supported
+- [ ] Sponsor access properly controlled
+- [ ] Crisis data properly protected
+- [ ] Trigger location privacy respected
